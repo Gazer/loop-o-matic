@@ -53,6 +53,7 @@ func Generate(ctx context.Context, cfg config.ExecutorConfig, loop *core.Loop, r
 		meta.CommitBody = fallback.CommitBody
 	}
 	meta.Model = cfg.Model
+	meta.CommitBody = EnsureCommitFooter(meta.CommitBody, cfg.Model, loop.IssueKey)
 	meta.PRBody = EnsurePRFooter(meta.PRBody, cfg.Model)
 	write(loop, repo, meta)
 	return meta, nil
@@ -115,7 +116,8 @@ func Prompt(loop *core.Loop, repo core.RepoRun, baseBranch, model string, eviden
 	fmt.Fprintf(&b, "Rules for commit_body:\n")
 	fmt.Fprintf(&b, "- Always write it in English.\n")
 	fmt.Fprintf(&b, "- 1-4 concise lines explaining what changed and why.\n")
-	fmt.Fprintf(&b, "- Mention the issue/task id when useful.\n\n")
+	fmt.Fprintf(&b, "- Do not include closing/referencing keywords like \"Fixes\", \"Addresses\", \"Closes\", \"Implements\", \"Addressed\", or \"Resolved\" followed by the ticket/task ID.\n")
+	fmt.Fprintf(&b, "- End with this footer exactly, preserving the model value: Co-authored-by: loop-o-matic\nGenerated-with: %s\n\n", model)
 	fmt.Fprintf(&b, "Rules for pr_body:\n")
 	fmt.Fprintf(&b, "- Always write it in English.\n")
 	fmt.Fprintf(&b, "- Be detailed and extensive enough for a reviewer to understand the full change without opening every file.\n")
@@ -123,6 +125,7 @@ func Prompt(loop *core.Loop, repo core.RepoRun, baseBranch, model string, eviden
 	fmt.Fprintf(&b, "- Detailed Changes should list meaningful behavior/code changes, grouped by area/file when possible.\n")
 	fmt.Fprintf(&b, "- Verification should summarize commands/results from the provided Verification Summary evidence.\n")
 	fmt.Fprintf(&b, "- Do not include local filesystem paths in the PR body. The reviewer cannot access local files.\n")
+	fmt.Fprintf(&b, "- Do not include closing/referencing keywords like \"Fixes\", \"Addresses\", \"Closes\", \"Implements\", \"Addressed\", or \"Resolved\" followed by the ticket/task ID in the summary or footer.\n")
 	fmt.Fprintf(&b, "- Convert all evidence into prose intended for a human reviewer.\n")
 	fmt.Fprintf(&b, "- End with this footer exactly, preserving the model value: Co-authored-by: loop-o-matic\nGenerated-with: %s\n", model)
 	fmt.Fprintf(&b, "\nInspect the diff and summaries before answering.\n")
@@ -132,12 +135,13 @@ func Prompt(loop *core.Loop, repo core.RepoRun, baseBranch, model string, eviden
 func Fallback(loop *core.Loop, repo core.RepoRun, model string, evidence Evidence) Metadata {
 	typeName := conventionalType(loop.Summary, evidence)
 	title := typeName + ": " + fallbackTitle(loop.Summary)
-	body := "Implements " + loop.IssueKey + "."
+	body := ""
+	commitBody := EnsureCommitFooter(body, model, loop.IssueKey)
 	implementation := summarizeFallback(evidence.ImplementationSummary, "The implementation updates the repository according to the requested task.")
 	verification := summarizeFallback(evidence.VerificationSummary, "Verification was performed by the loop verification agent; review CI results before merging.")
 	diffStat := summarizeFallback(evidence.DiffStat, "Diff statistics were not available when the fallback PR body was generated.")
 	pr := fmt.Sprintf("## Summary\n- Implements %s in `%s`.\n- %s\n\n## Detailed Changes\n%s\n\n## Verification\n%s\n\n## Risks / Notes\n- Review the generated diff, CI status, and verification output before merging.\n- Diff summary: %s", loop.IssueKey, repo.RepoName, implementation, bulletize(implementation), bulletize(verification), inline(diffStat))
-	return Metadata{Title: title, CommitBody: body, PRBody: EnsurePRFooter(pr, model), Model: model}
+	return Metadata{Title: title, CommitBody: commitBody, PRBody: EnsurePRFooter(pr, model), Model: model}
 }
 
 func conventionalType(summary string, evidence Evidence) string {
@@ -188,6 +192,31 @@ func EnsurePRFooter(body, model string) string {
 	filtered := lines[:0]
 	for _, line := range lines {
 		if strings.HasPrefix(strings.TrimSpace(line), "Generated-with:") {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	body = strings.TrimSpace(strings.Join(filtered, "\n"))
+	if body == "" {
+		return footer
+	}
+	return body + "\n\n" + footer
+}
+
+func EnsureCommitFooter(body, model, issueKey string) string {
+	body = strings.TrimSpace(body)
+	footer := fmt.Sprintf("Co-authored-by: loop-o-matic\nGenerated-with: %s", model)
+
+	if body == "" {
+		return footer
+	}
+
+	body = strings.TrimSpace(strings.ReplaceAll(body, "Co-authored-by: loop-o-matic", ""))
+	lines := strings.Split(body, "\n")
+	filtered := lines[:0]
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "Generated-with:") {
 			continue
 		}
 		filtered = append(filtered, line)
