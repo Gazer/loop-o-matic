@@ -136,13 +136,18 @@ func checksState(checks []json.RawMessage) string {
 	if len(checks) == 0 {
 		return "unknown"
 	}
+	anyNonCancelled := false
 	for _, raw := range checks {
 		var item map[string]any
 		if err := json.Unmarshal(raw, &item); err != nil {
 			return "unknown"
 		}
 		conclusion := strings.ToUpper(fmt.Sprint(item["conclusion"]))
-		if conclusion == "FAILURE" || conclusion == "CANCELLED" || conclusion == "TIMED_OUT" || conclusion == "ACTION_REQUIRED" {
+		if conclusion == "CANCELLED" {
+			continue
+		}
+		anyNonCancelled = true
+		if conclusion == "FAILURE" || conclusion == "TIMED_OUT" || conclusion == "ACTION_REQUIRED" {
 			return strings.ToLower(conclusion)
 		}
 		state := strings.ToUpper(fmt.Sprint(firstNonEmpty(item["state"], item["status"])))
@@ -156,6 +161,9 @@ func checksState(checks []json.RawMessage) string {
 			return "unknown"
 		}
 		return strings.ToLower(state)
+	}
+	if !anyNonCancelled {
+		return "unknown"
 	}
 	return "success"
 }
@@ -184,7 +192,7 @@ func failingChecks(checks []json.RawMessage) []FailingCheck {
 
 func isFailingCheckState(state, conclusion string) bool {
 	switch conclusion {
-	case "FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED":
+	case "FAILURE", "TIMED_OUT", "ACTION_REQUIRED":
 		return true
 	}
 	switch state {

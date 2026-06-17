@@ -806,7 +806,7 @@ func (e *Engine) monitorPRs(ctx context.Context, loop *core.Loop) error {
 			message := e.writePRFeedback(loop, repo, status, humanFeedback)
 			return e.retryOrPause(ctx, loop, message)
 		}
-		if repo.CIState != "success" && repo.CIState != "unknown" && repo.CIState != "pending" {
+		if repo.CIState != "success" && repo.CIState != "cancelled" && repo.CIState != "unknown" && repo.CIState != "pending" {
 			message := e.writeCIFailures(loop, repo, status)
 			return e.retryOrPause(ctx, loop, message)
 		}
