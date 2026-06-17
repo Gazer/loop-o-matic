@@ -1,0 +1,5 @@
+.DS_Store
+/loop
+/loopd
+*.sqlite
+*.sqlite-*

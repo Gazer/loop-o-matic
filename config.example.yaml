@@ -1,0 +1,45 @@
+workspace:
+  root: ~/.loop-o-matic/runs
+  bare_repos_root: ~/.loop-o-matic/bare-repos
+  log_root: ~/.loop-o-matic/logs
+  state_path: ~/.loop-o-matic/state.sqlite
+
+daemon:
+  tick_interval: 30s
+  max_running_tasks: 2
+  max_auto_retries: 3
+
+jira:
+  cli: acli
+
+github:
+  cli: gh
+
+executor:
+  cli: opencode
+  model: github-copilot/gemini-3.5-flash
+  auto_approve_permissions: true
+  # Optional escape hatch. If empty, loopd builds an opencode prompt and runs:
+  # opencode run --model github-copilot/gemini-3.5-flash --dir <workspace> <prompt>
+  # The command receives LOOP_ISSUE_KEY, LOOP_WORKSPACE, LOOP_TICKET_FILE,
+  # LOOP_PLAN_FILE and LOOP_PROMPT_FILE.
+  command: []
+  timeout: 1h
+
+repos:
+  android-sdk:
+    bare: android-sdk.git
+    github: contentsquare/android-sdk
+    # Optional. Use when origin points to your fork and PRs must use owner:branch.
+    # fork_owner: your-github-user-or-org
+    default_branch: main
+
+  ios-sdk:
+    bare: ios-sdk.git
+    github: contentsquare/ios-sdk
+    default_branch: main
+
+  web-sdk:
+    bare: web-sdk.git
+    github: contentsquare/web-sdk
+    default_branch: main
