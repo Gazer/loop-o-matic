@@ -83,7 +83,47 @@ func (g GitHub) PRStatus(ctx context.Context, repoPath string, number int) (PRSt
 	if err := json.Unmarshal([]byte(res.Stdout), &raw); err != nil {
 		return PRStatus{}, err
 	}
-	return PRStatus{ReviewDecision: raw.ReviewDecision, ChecksState: checksState(raw.StatusCheckRollup), MergeState: raw.MergeStateStatus, Mergeable: raw.Mergeable, FailingChecks: failingChecks(raw.StatusCheckRollup), Feedback: prFeedback(raw.Comments, raw.Reviews, raw.LatestReviews)}, nil
+
+	feedback := prFeedback(raw.Comments, raw.Reviews, raw.LatestReviews)
+	seen := map[string]bool{}
+	for _, fb := range feedback {
+		key := fb.Kind + "|" + fb.Author + "|" + fb.State + "|" + fb.Body + "|" + fb.URL
+		seen[key] = true
+	}
+
+	// Fetch inline review/code comments using the GitHub API
+	owner, repo := gitRemoteOwnerRepo(ctx, repoPath)
+	if owner != "" && repo != "" {
+		apiPath := fmt.Sprintf("repos/%s/%s/pulls/%d/comments", owner, repo, number)
+		apiRes, err := run.Command(ctx, repoPath, nil, g.cli, "api", apiPath)
+		if err == nil {
+			var apiComments []map[string]any
+			if err := json.Unmarshal([]byte(apiRes.Stdout), &apiComments); err == nil {
+				for _, item := range apiComments {
+					author := ""
+					if userMap, ok := item["user"].(map[string]any); ok {
+						author = fmt.Sprint(firstNonEmpty(userMap["login"], userMap["name"]))
+					}
+					if author == "" {
+						author = fmt.Sprint(item["user"])
+					}
+					fb := PRFeedback{
+						Kind:      "code-comment",
+						Author:    author,
+						State:     fmt.Sprint(item["author_association"]),
+						Body:      strings.TrimSpace(fmt.Sprint(item["body"])),
+						URL:       fmt.Sprint(item["html_url"]),
+						Path:      fmt.Sprint(item["path"]),
+						Line:      fmt.Sprint(firstNonEmpty(item["line"], item["original_line"])),
+						CreatedAt: fmt.Sprint(item["created_at"]),
+					}
+					appendFeedback(&feedback, seen, fb)
+				}
+			}
+		}
+	}
+
+	return PRStatus{ReviewDecision: raw.ReviewDecision, ChecksState: checksState(raw.StatusCheckRollup), MergeState: raw.MergeStateStatus, Mergeable: raw.Mergeable, FailingChecks: failingChecks(raw.StatusCheckRollup), Feedback: feedback}, nil
 }
 
 func (s PRStatus) IsOutOfDate() bool {
@@ -271,4 +311,29 @@ func parsePRNumber(url string) int {
 	}
 	n, _ := strconv.Atoi(parts[len(parts)-1])
 	return n
+}
+
+func gitRemoteOwnerRepo(ctx context.Context, repoPath string) (string, string) {
+	res, err := run.Command(ctx, repoPath, nil, "git", "remote", "get-url", "origin")
+	if err != nil {
+		return "", ""
+	}
+	url := strings.TrimSpace(res.Stdout)
+	url = strings.TrimSuffix(url, ".git")
+	if strings.HasPrefix(url, "git@") {
+		parts := strings.SplitN(url, ":", 2)
+		if len(parts) == 2 {
+			pathParts := strings.Split(parts[1], "/")
+			if len(pathParts) >= 2 {
+				return pathParts[0], pathParts[1]
+			}
+		}
+	}
+	if idx := strings.Index(url, "github.com/"); idx != -1 {
+		pathParts := strings.Split(url[idx+len("github.com/"):], "/")
+		if len(pathParts) >= 2 {
+			return pathParts[0], pathParts[1]
+		}
+	}
+	return "", ""
 }
