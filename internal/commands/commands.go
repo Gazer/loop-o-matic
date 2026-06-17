@@ -489,13 +489,13 @@ func updateLoop(ctx context.Context, command string, args []string) error {
 	}
 	status := core.StatusPaused
 	if command == "resume" {
-		if loop.Status == core.StatusBlocked || loop.Status == core.StatusFailed {
-			status = core.StatusImplementing
-		} else if loop.LastActiveStatus != "" && loop.LastActiveStatus != core.StatusPaused {
+		if loop.LastActiveStatus != "" && loop.LastActiveStatus != core.StatusPaused {
 			status = loop.LastActiveStatus
 			if status == core.StatusCreatingPRs {
 				status = core.StatusImplementing
 			}
+		} else if loop.Status == core.StatusBlocked || loop.Status == core.StatusFailed {
+			status = core.StatusImplementing
 		} else {
 			status = core.StatusCreated
 			if _, err := os.Stat(filepath.Join(loop.RunDir, "verification-summary.md")); err == nil {
