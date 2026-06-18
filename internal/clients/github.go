@@ -262,7 +262,9 @@ func isBotAuthor(author string) bool {
 
 	isLoop := strings.Contains(author, "loop-o-matic")
 
-	return isBot || isCI || isLoop
+	isCopilot := strings.Contains(author, "copilot")
+
+	return isBot || isCI || isLoop || isCopilot
 }
 
 func decodeMap(raw json.RawMessage) map[string]any {

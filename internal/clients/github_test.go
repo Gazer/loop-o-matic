@@ -42,6 +42,8 @@ func TestHumanFeedbackFiltersBots(t *testing.T) {
 	feedback := []PRFeedback{
 		{Author: "contentsquare-ci", Body: "bot summary"},
 		{Author: "renovate[bot]", Body: "bot"},
+		{Author: "copilot-swe-agent", Body: "copilot resolved"},
+		{Author: "github-copilot", Body: "copilot summary"},
 		{Author: "ricardo-markiewicz-cs", Body: "please change this"},
 		{Author: "lucia", Body: "lucia is human"},
 		{Author: "patricia", Body: "patricia is human"},
