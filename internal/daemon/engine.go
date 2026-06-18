@@ -771,7 +771,8 @@ func (e *Engine) monitorPRs(ctx context.Context, loop *core.Loop) error {
 		}
 		status, err := e.gh.PRStatus(ctx, repo.Path, repo.PRNumber)
 		if err != nil {
-			return fmt.Errorf("status PR %s: %w", repo.RepoName, err)
+			e.logger.Error(ctx, loop, "failed to get PR status for %s: %v. Will retry in next loop tick.", repo.RepoName, err)
+			continue
 		}
 		repo.CIState = status.ChecksState
 		repo.ReviewDecision = status.ReviewDecision
