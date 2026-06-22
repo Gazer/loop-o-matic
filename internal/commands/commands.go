@@ -605,8 +605,12 @@ func deleteLoop(ctx context.Context, args []string) error {
 			}
 		}
 		if !keepWorkspace {
-			if err := git.RemoveWorktree(ctx, repo.Path, force); err != nil && !os.IsNotExist(err) {
-				logger.Error(ctx, loop, "failed to remove worktree %s: %v", repo.RepoName, err)
+			if err := git.RemoveWorktree(ctx, repo.Path, force); err != nil {
+				if force {
+					logger.Error(ctx, loop, "failed to remove worktree %s: %v", repo.RepoName, err)
+				} else {
+					fmt.Fprintf(os.Stderr, "failed to remove worktree %s; retry with --force to discard changes: %v\n", repo.RepoName, err)
+				}
 			}
 		}
 	}

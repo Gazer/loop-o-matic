@@ -228,6 +228,9 @@ func GitHubOwnerFromRemote(remoteURL string) string {
 }
 
 func (Git) RemoveWorktree(ctx context.Context, repoPath string, force bool) error {
+	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+		return nil
+	}
 	args := []string{"worktree", "remove"}
 	if force {
 		args = append(args, "--force")
