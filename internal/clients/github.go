@@ -41,6 +41,7 @@ type PRStatus struct {
 	ChecksState    string
 	MergeState     string
 	Mergeable      string
+	Merged         bool
 	FailingChecks  []FailingCheck
 	Feedback       []PRFeedback
 }
@@ -67,7 +68,7 @@ func (g GitHub) PRStatus(ctx context.Context, repoPath string, number int) (PRSt
 	if number <= 0 {
 		return PRStatus{}, fmt.Errorf("pr number is required")
 	}
-	res, err := run.Command(ctx, repoPath, nil, g.cli, "pr", "view", strconv.Itoa(number), "--json", "reviewDecision,statusCheckRollup,comments,reviews,latestReviews,mergeStateStatus,mergeable")
+	res, err := run.Command(ctx, repoPath, nil, g.cli, "pr", "view", strconv.Itoa(number), "--json", "reviewDecision,statusCheckRollup,comments,reviews,latestReviews,mergeStateStatus,mergeable,merged")
 	if err != nil {
 		return PRStatus{}, err
 	}
@@ -79,6 +80,7 @@ func (g GitHub) PRStatus(ctx context.Context, repoPath string, number int) (PRSt
 		LatestReviews     []json.RawMessage `json:"latestReviews"`
 		MergeStateStatus  string            `json:"mergeStateStatus"`
 		Mergeable         string            `json:"mergeable"`
+		Merged            bool              `json:"merged"`
 	}
 	if err := json.Unmarshal([]byte(res.Stdout), &raw); err != nil {
 		return PRStatus{}, err
@@ -123,7 +125,7 @@ func (g GitHub) PRStatus(ctx context.Context, repoPath string, number int) (PRSt
 		}
 	}
 
-	return PRStatus{ReviewDecision: raw.ReviewDecision, ChecksState: checksState(raw.StatusCheckRollup), MergeState: raw.MergeStateStatus, Mergeable: raw.Mergeable, FailingChecks: failingChecks(raw.StatusCheckRollup), Feedback: feedback}, nil
+	return PRStatus{ReviewDecision: raw.ReviewDecision, ChecksState: checksState(raw.StatusCheckRollup), MergeState: raw.MergeStateStatus, Mergeable: raw.Mergeable, Merged: raw.Merged, FailingChecks: failingChecks(raw.StatusCheckRollup), Feedback: feedback}, nil
 }
 
 func (s PRStatus) IsOutOfDate() bool {
