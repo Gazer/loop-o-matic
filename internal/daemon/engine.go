@@ -785,6 +785,12 @@ func (e *Engine) monitorPRs(ctx context.Context, loop *core.Loop) error {
 		}
 		prLinks = append(prLinks, repo.PRURL)
 		e.logger.Info(ctx, loop, "%s PR status: checks=%s review=%s merge=%s merged=%v", repo.RepoName, repo.CIState, repo.ReviewDecision, status.MergeState, status.Merged)
+		if status.Merged {
+			e.logger.Info(ctx, loop, "%s PR is already merged; no further monitoring needed", repo.RepoName)
+			checksOK++
+			approved++
+			continue
+		}
 		if status.IsOutOfDate() {
 			if err := e.syncPRBranch(ctx, loop, repo); err != nil {
 				message := fmt.Sprintf("failed to sync %s with base branch: %v. Paused for human intervention.", repo.RepoName, err)
@@ -797,8 +803,6 @@ func (e *Engine) monitorPRs(ctx context.Context, loop *core.Loop) error {
 			checksOK++
 		}
 		if strings.EqualFold(repo.ReviewDecision, "APPROVED") {
-			approved++
-		} else if status.Merged {
 			approved++
 		}
 		if strings.EqualFold(repo.ReviewDecision, "CHANGES_REQUESTED") {
