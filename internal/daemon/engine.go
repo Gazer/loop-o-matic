@@ -590,11 +590,11 @@ func (e *Engine) verificationPrompt(ctx context.Context, loop *core.Loop) string
 	var b strings.Builder
 	if strings.HasPrefix(loop.IssueKey, "TASK-") {
 		fmt.Fprintf(&b, "You are the test/verification agent for a manually requested development task.\n\n")
-		fmt.Fprintf(&b, "Your job is to verify the implemented changes, fix any issues found, and confirm everything is correct for loopd to commit, push, and open PRs.\n\n")
+		fmt.Fprintf(&b, "Your job is to verify the implemented changes, report any issues found, and confirm everything is correct for loopd to commit, push, and open PRs.\n\n")
 		fmt.Fprintf(&b, "User ask:\n%s\n\n", loop.Summary)
 	} else {
 		fmt.Fprintf(&b, "You are the test/verification agent for Jira ticket %s.\n\n", loop.IssueKey)
-		fmt.Fprintf(&b, "Your job is to verify the implemented changes, fix any issues found, and confirm everything is correct for loopd to commit, push, and open PRs.\n\n")
+		fmt.Fprintf(&b, "Your job is to verify the implemented changes, report any issues found, and confirm everything is correct for loopd to commit, push, and open PRs.\n\n")
 	}
 	fmt.Fprintf(&b, "Workspace root: %s\n", loop.RunDir)
 	fmt.Fprintf(&b, "Task/ticket file: %s\n", loop.TicketPath)
@@ -605,17 +605,17 @@ func (e *Engine) verificationPrompt(ctx context.Context, loop *core.Loop) string
 	}
 	e.writeRepoContext(&b, repos)
 	fmt.Fprintf(&b, "\nConcrete task for this opencode instance:\n")
-	fmt.Fprintf(&b, "Verify the implementation and fix any issues found. The goal is to produce a correct, tested, production-ready change.\n")
+	fmt.Fprintf(&b, "Verify the implementation and report any issues found. The goal is to confirm the changes are correct and production-ready.\n")
 	fmt.Fprintf(&b, "\nVerification instructions:\n")
 	fmt.Fprintf(&b, "1. Inspect the actual uncommitted diffs in the affected repositories. Check that every change has the necessary imports (if the language uses them), that the syntax is valid, and that the logic correctly implements what the ticket and plan describe.\n")
 	fmt.Fprintf(&b, "2. Determine the right verification commands from each repo's files, scripts, docs, package metadata, Gradle/Xcode/npm/etc configuration, and the nature of the change.\n")
 	fmt.Fprintf(&b, "3. Check if README.md and/or CONTRIBUTING.md exist in the repo and follow any rules or conventions they define.\n")
 	fmt.Fprintf(&b, "4. Verify that the app compiles and tests pass. Run the smallest sufficient tests/build/lint/typecheck commands to gain confidence. Prefer focused checks first, broader checks when the change warrants it. Do not skip this step.\n")
-	fmt.Fprintf(&b, "5. If any issues are found (missing imports, broken tests, compilation errors, logic mismatches, convention violations), fix them. Do not report issues without fixing them first. Only report issues that you cannot fix within the scope of the task.\n")
-	fmt.Fprintf(&b, "6. Do not expand scope beyond verification. Do not implement unrelated improvements or features. Fix only issues that affect correctness, compilation, tests, or compliance with the ticket/plan.\n")
+	fmt.Fprintf(&b, "5. If any issues are found (missing imports, broken tests, compilation errors, logic mismatches, convention violations), report them in detail. Be thorough — describe exactly what is wrong, where, and why it matters. This is only a verification step, not a fix step.\n")
+	fmt.Fprintf(&b, "6. Do not expand scope beyond verification. Do not implement unrelated improvements or features. Do not fix or modify code. This is a verification step only.\n")
 	fmt.Fprintf(&b, "7. Do not commit, push, create PRs, merge, or comment externally.\n")
-	fmt.Fprintf(&b, "8. Write a concise verification report to %s, including commands run, results, any issues found and fixed, and any commands intentionally skipped with reasons.\n", filepath.Join(loop.RunDir, "verification-summary.md"))
-	fmt.Fprintf(&b, "\nIf verification fails (e.g., compilation errors remain, tests still fail, logic is incorrect) and you could not fix all issues, write the blocker details and failed test results to verification-summary.md and exit non-zero.\n")
+	fmt.Fprintf(&b, "8. Write a concise verification report to %s, including commands run, results, any issues found, and any commands intentionally skipped with reasons.\n", filepath.Join(loop.RunDir, "verification-summary.md"))
+	fmt.Fprintf(&b, "\nIf verification fails (e.g., compilation errors, test failures, logic is incorrect), write the blocker details and failed test results to verification-summary.md and exit non-zero. Do not modify code to fix these issues — this is a verification step only.\n")
 	return b.String()
 }
 
