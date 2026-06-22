@@ -33,6 +33,10 @@ repos:
     # Optional. Use when origin points to your fork and PRs must use owner:branch.
     # fork_owner: your-github-user-or-org
     default_branch: main
+    # Optional extra instructions passed as --extra on every loop using this repo.
+    # extras:
+    #   - "build with: ./gradlew :sdk:assembleRelease"
+    #   - "run tests with: ./gradlew :sdk:test"
 
   ios-sdk:
     bare: ios-sdk.git

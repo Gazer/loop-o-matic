@@ -104,6 +104,11 @@ func startLoop(ctx context.Context, args []string) error {
 		return err
 	}
 
+	repoExtra := collectRepoExtras(cfg, parsed.repos)
+	if repoExtra != "" {
+		parsed.extra = appendExtra(repoExtra, parsed.extra)
+	}
+
 	jira := clients.NewJira(cfg.Jira)
 	fmt.Printf("reading Jira issue %s\n", issueKey)
 	issue, err := jira.ViewIssue(ctx, issueKey)
@@ -214,6 +219,27 @@ func parseStartArgs(args []string) (startArgs, error) {
 	return parsed, nil
 }
 
+func collectRepoExtras(cfg *config.Config, repoNames []string) string {
+	var extras []string
+	for _, name := range repoNames {
+		if repo, ok := cfg.Repos[name]; ok {
+			for _, extra := range repo.Extras {
+				if trimmed := strings.TrimSpace(extra); trimmed != "" {
+					extras = append(extras, fmt.Sprintf("[%s] %s", name, trimmed))
+				}
+			}
+		}
+	}
+	switch len(extras) {
+	case 0:
+		return ""
+	case 1:
+		return extras[0]
+	default:
+		return strings.Join(extras, "\n\n")
+	}
+}
+
 func appendExtra(existing, next string) string {
 	next = strings.TrimSpace(next)
 	if next == "" {
@@ -316,13 +342,21 @@ func createLocalTaskLoop(ctx context.Context, cfg *config.Config, s *store.Store
 	if err := os.WriteFile(ticketPath, []byte(ticket), 0o644); err != nil {
 		return err
 	}
+	extraPath := ""
+	if repoExtra := collectRepoExtras(cfg, parsed.repos); repoExtra != "" {
+		extraPath = filepath.Join(runDir, "extra-instructions.md")
+		if err := os.WriteFile(extraPath, []byte(repoExtra+"\n"), 0o644); err != nil {
+			return err
+		}
+	}
 	loop := &core.Loop{
-		IssueKey:   issueKey,
-		Summary:    parsed.text,
-		Status:     core.StatusCreated,
-		RunDir:     runDir,
-		TicketPath: ticketPath,
-		RepoScope:  strings.Join(parsed.repos, ","),
+		IssueKey:              issueKey,
+		Summary:               parsed.text,
+		Status:                core.StatusCreated,
+		RunDir:                runDir,
+		TicketPath:            ticketPath,
+		ExtraInstructionsPath: extraPath,
+		RepoScope:             strings.Join(parsed.repos, ","),
 	}
 	if err := s.CreateLoop(ctx, loop); err != nil {
 		return err

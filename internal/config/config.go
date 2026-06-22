@@ -49,10 +49,11 @@ type ExecutorConfig struct {
 }
 
 type RepoConfig struct {
-	Bare          string `yaml:"bare"`
-	GitHub        string `yaml:"github"`
-	ForkOwner     string `yaml:"fork_owner"`
-	DefaultBranch string `yaml:"default_branch"`
+	Bare          string   `yaml:"bare"`
+	GitHub        string   `yaml:"github"`
+	ForkOwner     string   `yaml:"fork_owner"`
+	DefaultBranch string   `yaml:"default_branch"`
+	Extras        []string `yaml:"extras,omitempty"`
 }
 
 type Duration struct {
