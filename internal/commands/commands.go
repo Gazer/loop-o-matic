@@ -609,7 +609,7 @@ func deleteLoop(ctx context.Context, args []string) error {
 				if force {
 					logger.Error(ctx, loop, "failed to remove worktree %s: %v", repo.RepoName, err)
 				} else {
-					fmt.Fprintf(os.Stderr, "failed to remove worktree %s; retry with --force to discard changes: %v\n", repo.RepoName, err)
+					return fmt.Errorf("failed to remove worktree %s; retry with --force to discard changes: %w", repo.RepoName, err)
 				}
 			}
 		}
