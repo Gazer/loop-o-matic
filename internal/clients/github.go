@@ -1,9 +1,12 @@
 package clients
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -51,6 +54,7 @@ type FailingCheck struct {
 	State      string
 	Conclusion string
 	Link       string
+	LogSnippet string
 }
 
 type PRFeedback struct {
@@ -348,4 +352,61 @@ func gitRemoteOwnerRepo(ctx context.Context, repoPath string) (string, string) {
 		}
 	}
 	return "", ""
+}
+
+var runIDRegex = regexp.MustCompile(`runs/(\d+)/job`)
+
+func ExtractRunID(checkURL string) string {
+	matches := runIDRegex.FindStringSubmatch(checkURL)
+	if len(matches) < 2 {
+		return ""
+	}
+	return matches[1]
+}
+
+func (g GitHub) DownloadRunLogs(ctx context.Context, repoPath, runID string) ([]byte, error) {
+	owner, repo := gitRemoteOwnerRepo(ctx, repoPath)
+	if owner == "" || repo == "" {
+		return nil, fmt.Errorf("could not determine owner/repo from remote")
+	}
+	apiPath := fmt.Sprintf("repos/%s/%s/actions/runs/%s/logs", owner, repo, runID)
+	res, err := run.Command(ctx, repoPath, nil, g.cli, "api", apiPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download logs: %w", err)
+	}
+	return []byte(res.Stdout), nil
+}
+
+func ExtractLastNLines(zipData []byte, n int) string {
+	if n <= 0 {
+		n = 50
+	}
+	reader, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	if err != nil {
+		return ""
+	}
+	var allLines []string
+	for _, f := range reader.File {
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		buf := new(bytes.Buffer)
+		if _, err := buf.ReadFrom(rc); err != nil {
+			rc.Close()
+			continue
+		}
+		rc.Close()
+		content := buf.String()
+		lines := strings.Split(content, "\n")
+		allLines = append(allLines, lines...)
+	}
+	if len(allLines) == 0 {
+		return ""
+	}
+	start := len(allLines) - n
+	if start < 0 {
+		start = 0
+	}
+	return strings.Join(allLines[start:], "\n")
 }

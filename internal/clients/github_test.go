@@ -1,6 +1,8 @@
 package clients
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"testing"
 )
@@ -71,4 +73,119 @@ func TestPRStatusIsOutOfDate(t *testing.T) {
 	if (PRStatus{MergeState: "BLOCKED", Mergeable: "conflict-DIRTY"}).IsOutOfDate() {
 		t.Fatal("expected BLOCKED + DIRTY mergeable PR not to be out-of-date")
 	}
+}
+
+func TestExtractRunID(t *testing.T) {
+	tests := []struct {
+		url      string
+		expected string
+	}{
+		{"https://github.com/Gazer/caminante/actions/runs/28050091519/job/83038149112", "28050091519"},
+		{"https://github.com/Gazer/loop-o-matic/actions/runs/12345678901/job/98765432109", "12345678901"},
+		{"https://github.com/Gazer/caminante/actions/runs/111/job/222", "111"},
+		{"https://example.com/no-run-id", ""},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		result := ExtractRunID(tt.url)
+		if result != tt.expected {
+			t.Errorf("ExtractRunID(%q) = %q, want %q", tt.url, result, tt.expected)
+		}
+	}
+}
+
+func TestExtractLastNLines(t *testing.T) {
+	content := "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10"
+	zipData := createTestZip(t, content)
+
+	result := ExtractLastNLines(zipData, 3)
+	lines := splitLines(result)
+	if len(lines) != 3 {
+		t.Errorf("expected 3 lines, got %d: %q", len(lines), result)
+	}
+	if lines[0] != "line8" || lines[1] != "line9" || lines[2] != "line10" {
+		t.Errorf("unexpected lines: %v", lines)
+	}
+}
+
+func TestExtractLastNLinesMoreThanAvailable(t *testing.T) {
+	content := "line1\nline2\nline3\n"
+	zipData := createTestZip(t, content)
+
+	result := ExtractLastNLines(zipData, 100)
+	lines := splitLines(result)
+	if len(lines) != 3 {
+		t.Errorf("expected 3 lines, got %d: %q", len(lines), result)
+	}
+}
+
+func TestExtractLastNLinesEmpty(t *testing.T) {
+	zipData := createTestZip(t, "")
+	result := ExtractLastNLines(zipData, 10)
+	if result != "" {
+		t.Errorf("expected empty result, got %q", result)
+	}
+}
+
+func TestExtractLastNLinesInvalidZip(t *testing.T) {
+	result := ExtractLastNLines([]byte("not a zip"), 10)
+	if result != "" {
+		t.Errorf("expected empty result for invalid zip, got %q", result)
+	}
+}
+
+func createTestZip(t *testing.T, content string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	f, err := w.Create("test.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var result []string
+	for _, line := range splitString(s, "\n") {
+		if line != "" {
+			result = append(result, line)
+		}
+	}
+	return result
+}
+
+func splitString(s, sep string) []string {
+	var result []string
+	for {
+		idx := indexOf(s, sep)
+		if idx == -1 {
+			if s != "" {
+				result = append(result, s)
+			}
+			break
+		}
+		result = append(result, s[:idx])
+		s = s[idx+len(sep):]
+	}
+	return result
+}
+
+func indexOf(s, substr string) int {
+	for i := 0; i+len(substr) <= len(s); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
 }

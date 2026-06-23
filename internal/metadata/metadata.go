@@ -27,30 +27,26 @@ type Metadata struct {
 
 func Generate(ctx context.Context, cfg config.ExecutorConfig, loop *core.Loop, repo core.RepoRun, baseBranch string) (Metadata, error) {
 	evidence := CollectEvidence(ctx, loop, repo)
-	fallback := Fallback(loop, repo, cfg.Model, evidence)
 	prompt := Prompt(loop, repo, baseBranch, cfg.Model, evidence)
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	res, err := opencode.New(cfg).Run(ctx, opencode.RunRequest{Dir: repo.Path, Title: loop.IssueKey + " commit pr metadata", Prompt: prompt})
 	if err != nil {
-		write(loop, repo, fallback)
-		return fallback, err
+		return Metadata{}, fmt.Errorf("opencode agent failed to generate PR metadata: %w", err)
 	}
 	meta, err := parse(res.Stdout)
 	if err != nil {
-		write(loop, repo, fallback)
-		return fallback, err
+		return Metadata{}, fmt.Errorf("failed to parse PR metadata from agent output: %w", err)
 	}
 	meta = sanitize(meta)
 	if !ValidTitle(meta.Title) {
-		write(loop, repo, fallback)
-		return fallback, fmt.Errorf("invalid conventional title: %q", meta.Title)
+		return Metadata{}, fmt.Errorf("agent generated invalid conventional title: %q", meta.Title)
 	}
 	if strings.TrimSpace(meta.PRBody) == "" {
-		meta.PRBody = fallback.PRBody
+		return Metadata{}, fmt.Errorf("agent generated empty PR body")
 	}
 	if strings.TrimSpace(meta.CommitBody) == "" {
-		meta.CommitBody = fallback.CommitBody
+		return Metadata{}, fmt.Errorf("agent generated empty commit body")
 	}
 	meta.Model = cfg.Model
 	meta.CommitBody = EnsureCommitFooter(meta.CommitBody, cfg.Model, loop.IssueKey)
@@ -106,6 +102,7 @@ func Prompt(loop *core.Loop, repo core.RepoRun, baseBranch, model string, eviden
 	fmt.Fprintf(&b, "- Allowed types: feat, fix, chore, docs, refactor, test, perf, ci, build.\n")
 	fmt.Fprintf(&b, "- Always write it in English.\n")
 	fmt.Fprintf(&b, "- Do not copy the raw user request if it is not English; summarize the implemented change in English.\n")
+	fmt.Fprintf(&b, "- Use the implementation summary to generate the short description. 70 chars or less.\n")
 	fmt.Fprintf(&b, "- Use imperative present tense.\n")
 	fmt.Fprintf(&b, "- Use feat for new behavior, new API surface, new callbacks/listeners, new integration points, or behavior that users/integrators can observe.\n")
 	fmt.Fprintf(&b, "- Use fix only for bug fixes.\n")
@@ -130,29 +127,6 @@ func Prompt(loop *core.Loop, repo core.RepoRun, baseBranch, model string, eviden
 	fmt.Fprintf(&b, "- End with this footer exactly, preserving the model value: Co-authored-by: loop-o-matic\nGenerated-with: %s\n", model)
 	fmt.Fprintf(&b, "\nInspect the diff and summaries before answering.\n")
 	return b.String()
-}
-
-func Fallback(loop *core.Loop, repo core.RepoRun, model string, evidence Evidence) Metadata {
-	typeName := conventionalType(loop.Summary, evidence)
-	title := typeName + ": " + fallbackTitle(loop.Summary)
-	body := ""
-	commitBody := EnsureCommitFooter(body, model, loop.IssueKey)
-	implementation := summarizeFallback(evidence.ImplementationSummary, "The implementation updates the repository according to the requested task.")
-	verification := summarizeFallback(evidence.VerificationSummary, "Verification was performed by the loop verification agent; review CI results before merging.")
-	diffStat := summarizeFallback(evidence.DiffStat, "Diff statistics were not available when the fallback PR body was generated.")
-	pr := fmt.Sprintf("## Summary\n- Implements %s in `%s`.\n- %s\n\n## Detailed Changes\n%s\n\n## Verification\n%s\n\n## Risks / Notes\n- Review the generated diff, CI status, and verification output before merging.\n- Diff summary: %s", loop.IssueKey, repo.RepoName, implementation, bulletize(implementation), bulletize(verification), inline(diffStat))
-	return Metadata{Title: title, CommitBody: commitBody, PRBody: EnsurePRFooter(pr, model), Model: model}
-}
-
-func conventionalType(summary string, evidence Evidence) string {
-	lower := strings.ToLower(summary + "\n" + evidence.TicketSummary + "\n" + evidence.ImplementationSummary + "\n" + evidence.Diff)
-	if strings.Contains(lower, "fix") || strings.Contains(lower, "bug") || strings.Contains(lower, "error") || strings.Contains(lower, "not working") || strings.Contains(lower, "crash") {
-		return "fix"
-	}
-	if strings.Contains(lower, "new ") || strings.Contains(lower, "create ") || strings.Contains(lower, "add ") || strings.Contains(lower, "callback") || strings.Contains(lower, "listener") || strings.Contains(lower, "api") || strings.Contains(lower, "integration") || strings.Contains(lower, "support ") {
-		return "feat"
-	}
-	return "feat"
 }
 
 func ValidTitle(title string) bool {
@@ -237,17 +211,6 @@ func write(loop *core.Loop, repo core.RepoRun, meta Metadata) {
 	_ = os.WriteFile(filepath.Join(loop.RunDir, repo.RepoName+"-commit-pr-metadata.json"), []byte(toJSON(meta)+"\n"), 0o644)
 }
 
-func fallbackTitle(summary string) string {
-	lower := strings.ToLower(summary)
-	if strings.Contains(lower, "keybinding") || strings.Contains(lower, "key binding") || strings.Contains(lower, "shortcut") {
-		return "configure action keybindings"
-	}
-	if strings.Contains(lower, "configurar") && strings.Contains(lower, "keybindings") {
-		return "configure action keybindings"
-	}
-	return "implement requested change"
-}
-
 func readText(path string, limit int) string {
 	if strings.TrimSpace(path) == "" {
 		return ""
@@ -281,58 +244,6 @@ func writeSection(b *strings.Builder, title, content string) {
 		content = "Not available."
 	}
 	fmt.Fprintf(b, "\n--- %s ---\n%s\n", title, content)
-}
-
-func summarizeFallback(text, fallback string) string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return fallback
-	}
-	lines := strings.Split(text, "\n")
-	var useful []string
-	for _, line := range lines {
-		line = strings.TrimSpace(strings.TrimLeft(line, "#-* "))
-		if line == "" || strings.HasPrefix(line, "```") {
-			continue
-		}
-		useful = append(useful, line)
-		if len(useful) == 4 {
-			break
-		}
-	}
-	if len(useful) == 0 {
-		return fallback
-	}
-	return strings.Join(useful, " ")
-}
-
-func bulletize(text string) string {
-	parts := strings.Split(text, ". ")
-	var bullets []string
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			bullets = append(bullets, "- "+strings.TrimSuffix(part, ".")+".")
-		}
-		if len(bullets) == 4 {
-			break
-		}
-	}
-	if len(bullets) == 0 {
-		return "- " + text
-	}
-	return strings.Join(bullets, "\n")
-}
-
-func inline(text string) string {
-	text = strings.Join(strings.Fields(text), " ")
-	if text == "" {
-		return "not available"
-	}
-	if len(text) > 240 {
-		return text[:240] + "..."
-	}
-	return text
 }
 
 func firstNonEmpty(values ...string) string {

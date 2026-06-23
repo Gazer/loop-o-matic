@@ -23,7 +23,7 @@ func Generate(ctx context.Context, cfg config.ExecutorConfig, loop *core.Loop, r
 	defer cancel()
 	name, raw, err := runNamePrompt(ctx, cfg, loop, prompt)
 	if err != nil {
-		return Fallback(loop.IssueKey, loop.Summary), err
+		return "", fmt.Errorf("opencode agent failed to generate branch name: %w", err)
 	}
 	if !Valid(name) {
 		repairPrompt := RepairPrompt(loop, repoName, ticketText, raw, invalidReason(name))
@@ -32,7 +32,7 @@ func Generate(ctx context.Context, cfg config.ExecutorConfig, loop *core.Loop, r
 			_ = os.WriteFile(filepath.Join(loop.RunDir, repoName+"-branch-name.txt"), []byte(repaired+"\n"), 0o644)
 			return repaired, nil
 		}
-		return Fallback(loop.IssueKey, loop.Summary), repairErr
+		return "", fmt.Errorf("agent generated invalid branch name: %q, repair also failed: %w", name, repairErr)
 	}
 	_ = os.WriteFile(filepath.Join(loop.RunDir, repoName+"-branch-name.txt"), []byte(name+"\n"), 0o644)
 	return name, nil
@@ -96,23 +96,6 @@ func RepairPrompt(loop *core.Loop, repoName, ticketText, invalidOutput, reason s
 	return b.String()
 }
 
-func Fallback(issueKey, summary string) string {
-	typeName := "feat"
-	lower := strings.ToLower(summary)
-	if strings.Contains(lower, "fix") || strings.Contains(lower, "bug") || strings.Contains(lower, "error") || strings.Contains(lower, "not working") {
-		typeName = "fix"
-	}
-	issue := slug(issueKey)
-	if issue == "" {
-		issue = "task"
-	}
-	title := englishFallbackDescription(summary)
-	if title == "" {
-		title = "update-project-behavior"
-	}
-	return typeName + "/" + issue + "-" + truncateSlug(title, 8)
-}
-
 func Sanitize(value string) string {
 	value = strings.TrimSpace(value)
 	value = strings.Trim(value, "` \t\r\n")
@@ -131,38 +114,6 @@ func Sanitize(value string) string {
 
 func Valid(value string) bool {
 	return validBranch.MatchString(value)
-}
-
-func englishFallbackDescription(summary string) string {
-	lower := strings.ToLower(summary)
-	if strings.Contains(lower, "keybinding") || strings.Contains(lower, "key binding") || strings.Contains(lower, "shortcut") || strings.Contains(lower, "keybindings") || strings.Contains(lower, "tecla") || strings.Contains(lower, "atajo") {
-		if strings.Contains(lower, "config") || strings.Contains(lower, "configurar") || strings.Contains(lower, "configurable") || strings.Contains(lower, "custom") {
-			return "configure-action-keybindings"
-		}
-		return "update-action-keybindings"
-	}
-	if (strings.Contains(lower, "settings") || strings.Contains(lower, "preferencias") || strings.Contains(lower, "configuracion")) && (strings.Contains(lower, "action") || strings.Contains(lower, "accion")) {
-		return "configure-action-settings"
-	}
-	if strings.Contains(lower, "branch") {
-		return "improve-branch-naming"
-	}
-	if strings.Contains(lower, "commit") {
-		return "improve-commit-metadata"
-	}
-	if strings.Contains(lower, "pull request") || strings.Contains(lower, "pr") {
-		return "improve-pull-request-metadata"
-	}
-	if strings.Contains(lower, "test") || strings.Contains(lower, "verify") || strings.Contains(lower, "verificar") {
-		return "improve-verification-flow"
-	}
-	if strings.Contains(lower, "delete") || strings.Contains(lower, "borrar") || strings.Contains(lower, "eliminar") {
-		return "add-task-deletion"
-	}
-	if strings.Contains(lower, "binding") {
-		return "update-bindings"
-	}
-	return "update-project-behavior"
 }
 
 func invalidReason(value string) string {
@@ -191,14 +142,6 @@ func slug(value string) string {
 		}
 	}
 	return strings.Trim(b.String(), "-")
-}
-
-func truncateSlug(value string, words int) string {
-	parts := strings.Split(value, "-")
-	if len(parts) <= words {
-		return value
-	}
-	return strings.Join(parts[:words], "-")
 }
 
 func firstLine(s string) string {

@@ -525,8 +525,8 @@ func writeCIFailureEvidence(b *strings.Builder, runDir string) {
 	if text == "" {
 		return
 	}
-	if len(text) > 12000 {
-		text = text[:12000] + "\n[truncated]"
+	if len(text) > 20000 {
+		text = text[:20000] + "\n[truncated]"
 	}
 	fmt.Fprintf(b, "CI failure evidence from previous GitHub checks:\n%s\n\n", text)
 	fmt.Fprintf(b, "You must use this CI failure evidence to guide the fix. Do not ignore it.\n\n")
@@ -815,7 +815,7 @@ func (e *Engine) monitorPRs(ctx context.Context, loop *core.Loop) error {
 			return e.retryOrPause(ctx, loop, message)
 		}
 		if repo.CIState != "success" && repo.CIState != "cancelled" && repo.CIState != "unknown" && repo.CIState != "pending" {
-			message := e.writeCIFailures(loop, repo, status)
+			message := e.writeCIFailures(ctx, loop, repo, status)
 			return e.retryOrPause(ctx, loop, message)
 		}
 	}
@@ -918,7 +918,7 @@ func feedbackHash(feedback []clients.PRFeedback) string {
 	return fmt.Sprintf("%x", sum[:])
 }
 
-func (e *Engine) writeCIFailures(loop *core.Loop, repo core.RepoRun, status clients.PRStatus) string {
+func (e *Engine) writeCIFailures(ctx context.Context, loop *core.Loop, repo core.RepoRun, status clients.PRStatus) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# CI Failures\n\n")
 	fmt.Fprintf(&b, "GitHub CI failed for `%s` on PR %s.\n\n", repo.RepoName, repo.PRURL)
@@ -938,6 +938,18 @@ func (e *Engine) writeCIFailures(loop *core.Loop, repo core.RepoRun, status clie
 				fmt.Fprintf(&b, "- **%s**: `%s` - %s\n", name, state, check.Link)
 			} else {
 				fmt.Fprintf(&b, "- **%s**: `%s`\n", name, state)
+			}
+			if check.Link != "" && check.Link != "<nil>" {
+				runID := clients.ExtractRunID(check.Link)
+				if runID != "" {
+					logData, err := e.gh.DownloadRunLogs(ctx, repo.Path, runID)
+					if err == nil && len(logData) > 0 {
+						logSnippet := clients.ExtractLastNLines(logData, 50)
+						if logSnippet != "" {
+							fmt.Fprintf(&b, "```\n%s\n```\n", logSnippet)
+						}
+					}
+				}
 			}
 		}
 	}
