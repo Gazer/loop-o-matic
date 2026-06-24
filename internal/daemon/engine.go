@@ -17,6 +17,7 @@ import (
 	"loop-o-matic/internal/core"
 	"loop-o-matic/internal/logging"
 	"loop-o-matic/internal/metadata"
+	"loop-o-matic/internal/notify"
 	"loop-o-matic/internal/opencode"
 	"loop-o-matic/internal/run"
 	"loop-o-matic/internal/store"
@@ -26,6 +27,7 @@ type Engine struct {
 	cfg          *config.Config
 	store        *store.Store
 	logger       *logging.Logger
+	notify       notify.Notifier
 	git          clients.Git
 	gh           clients.GitHub
 	jira         clients.Jira
@@ -37,10 +39,17 @@ type Engine struct {
 }
 
 func NewEngine(cfg *config.Config, s *store.Store, logger *logging.Logger) *Engine {
+	var n notify.Notifier
+	if cfg.Notifications.Enabled {
+		n = notify.New()
+	} else {
+		n = &notify.NoOp{}
+	}
 	return &Engine{
 		cfg:          cfg,
 		store:        s,
 		logger:       logger,
+		notify:       n,
 		git:          clients.Git{},
 		gh:           clients.NewGitHub(cfg.GitHub),
 		jira:         clients.NewJira(cfg.Jira),
@@ -1002,6 +1011,9 @@ func (e *Engine) setStatus(ctx context.Context, loop *core.Loop, status, lastErr
 	}
 	loop.Status = status
 	loop.LastError = lastError
+	if err == nil && current.Status != status {
+		e.notify.Send(loop.IssueKey, status)
+	}
 	return e.store.UpdateLoopStatusIfNotStopped(ctx, loop.ID, status, lastError)
 }
 
@@ -1018,6 +1030,7 @@ func (e *Engine) retryOrPause(ctx context.Context, loop *core.Loop, reason strin
 		if e.logger != nil {
 			e.logger.Info(ctx, loop, "%s", message)
 		}
+		e.notify.Send(loop.IssueKey, core.StatusPaused)
 		return e.store.UpdateLoopStatusAndRetry(ctx, loop.ID, core.StatusPaused, message, loop.AutoRetryCount)
 	}
 	message := fmt.Sprintf("auto retry %d/%d: %s", nextCount, e.cfg.Daemon.MaxAutoRetries, reason)
@@ -1027,6 +1040,7 @@ func (e *Engine) retryOrPause(ctx context.Context, loop *core.Loop, reason strin
 	if e.logger != nil {
 		e.logger.Info(ctx, loop, "%s", message)
 	}
+	e.notify.Send(loop.IssueKey, core.StatusImplementing)
 	return e.store.UpdateLoopStatusAndRetry(ctx, loop.ID, core.StatusImplementing, message, nextCount)
 }
 

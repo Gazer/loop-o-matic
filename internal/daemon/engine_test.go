@@ -10,6 +10,7 @@ import (
 	"loop-o-matic/internal/config"
 	"loop-o-matic/internal/core"
 	"loop-o-matic/internal/logging"
+	"loop-o-matic/internal/notify"
 	"loop-o-matic/internal/store"
 )
 
@@ -40,7 +41,7 @@ func TestRetryOrPausePausesAfterLimit(t *testing.T) {
 	if err := s.CreateLoop(ctx, loop); err != nil {
 		t.Fatal(err)
 	}
-	e := &Engine{cfg: &config.Config{Daemon: config.DaemonConfig{MaxAutoRetries: 3}}, store: s}
+	e := &Engine{cfg: &config.Config{Daemon: config.DaemonConfig{MaxAutoRetries: 3}}, store: s, notify: &notify.NoOp{}}
 	if err := e.retryOrPause(ctx, loop, "ci failed"); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +89,7 @@ func TestVerifyTransitionsToCreatingPRs(t *testing.T) {
 	cfg := &config.Config{
 		Daemon: config.DaemonConfig{MaxAutoRetries: 3},
 	}
-	e := &Engine{cfg: cfg, store: s, logger: logger}
+	e := &Engine{cfg: cfg, store: s, logger: logger, notify: &notify.NoOp{}}
 
 	if err := e.verify(ctx, loop); err != nil {
 		t.Fatal(err)
@@ -137,7 +138,7 @@ func TestVerifyRetriesOnFailure(t *testing.T) {
 			Timeout: config.Duration{Duration: 10 * time.Second},
 		},
 	}
-	e := &Engine{cfg: cfg, store: s, logger: logger}
+	e := &Engine{cfg: cfg, store: s, logger: logger, notify: &notify.NoOp{}}
 
 	if err := e.verify(ctx, loop); err != nil {
 		t.Fatal(err)
@@ -184,7 +185,7 @@ func TestPanicRecovery(t *testing.T) {
 	cfg := &config.Config{
 		Daemon: config.DaemonConfig{MaxAutoRetries: 3},
 	}
-	e := &Engine{cfg: cfg, store: s, logger: logger}
+	e := &Engine{cfg: cfg, store: s, logger: logger, notify: &notify.NoOp{}}
 
 	// This should recover from the panic inside ProcessLoop
 	e.processLoopSafely(ctx, loop)

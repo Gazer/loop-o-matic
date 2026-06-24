@@ -26,6 +26,9 @@ executor:
   command: []
   timeout: 1h
 
+notifications:
+  enabled: true  # Send desktop notifications on status changes (auto-detects notify-send/osascript)
+
 repos:
   android-sdk:
     bare: android-sdk.git

@@ -11,12 +11,17 @@ import (
 )
 
 type Config struct {
-	Workspace WorkspaceConfig       `yaml:"workspace"`
-	Daemon    DaemonConfig          `yaml:"daemon"`
-	Jira      JiraConfig            `yaml:"jira"`
-	GitHub    GitHubConfig          `yaml:"github"`
-	Executor  ExecutorConfig        `yaml:"executor"`
-	Repos     map[string]RepoConfig `yaml:"repos"`
+	Workspace     WorkspaceConfig       `yaml:"workspace"`
+	Daemon        DaemonConfig          `yaml:"daemon"`
+	Jira          JiraConfig            `yaml:"jira"`
+	GitHub        GitHubConfig          `yaml:"github"`
+	Executor      ExecutorConfig        `yaml:"executor"`
+	Notifications NotificationsConfig   `yaml:"notifications"`
+	Repos         map[string]RepoConfig `yaml:"repos"`
+}
+
+type NotificationsConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 type WorkspaceConfig struct {
@@ -131,6 +136,9 @@ func setDefaults(cfg *Config) {
 	if cfg.Executor.AutoApprovePermissions == nil {
 		v := true
 		cfg.Executor.AutoApprovePermissions = &v
+	}
+	if !cfg.Notifications.Enabled {
+		cfg.Notifications.Enabled = true
 	}
 	for name, repo := range cfg.Repos {
 		if repo.DefaultBranch == "" {
