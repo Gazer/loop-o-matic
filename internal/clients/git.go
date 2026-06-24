@@ -25,6 +25,14 @@ func (Git) Fetch(ctx context.Context, bareRepo string) error {
 	return err
 }
 
+func (Git) UpdateBranch(ctx context.Context, bareRepo, branch string) error {
+	if branch == "" {
+		return nil
+	}
+	_, err := run.Command(ctx, "", nil, "git", "--git-dir", bareRepo, "branch", "-f", branch, "origin/"+branch)
+	return err
+}
+
 func (Git) AddWorktree(ctx context.Context, bareRepo, worktreePath, branch, baseRef string) error {
 	_, err := run.Command(ctx, "", nil, "git", "--git-dir", bareRepo, "worktree", "add", "-B", branch, worktreePath, baseRef)
 	return err
@@ -136,7 +144,10 @@ func (Git) CommitAll(ctx context.Context, repoPath, subject, body string) error 
 
 func (Git) Push(ctx context.Context, repoPath, branch string) error {
 	_, err := run.Command(ctx, repoPath, nil, "git", "push", "-u", "origin", branch)
-	if err != nil && isNonFastForward(err) {
+	if err != nil && isPushRetryable(err) {
+		if pullErr := (Git{}).SyncWithBase(ctx, repoPath, branch); pullErr != nil {
+			return fmt.Errorf("push failed: %v; pull also failed: %v", err, pullErr)
+		}
 		_, err = run.Command(ctx, repoPath, nil, "git", "push", "--force-with-lease", "-u", "origin", branch)
 	}
 	return err
@@ -144,7 +155,10 @@ func (Git) Push(ctx context.Context, repoPath, branch string) error {
 
 func (Git) PushResult(ctx context.Context, repoPath, branch string) (run.Result, error) {
 	res, err := run.Command(ctx, repoPath, nil, "git", "push", "-u", "origin", branch)
-	if err != nil && isNonFastForward(err) {
+	if err != nil && isPushRetryable(err) {
+		if pullErr := (Git{}).SyncWithBase(ctx, repoPath, branch); pullErr != nil {
+			return res, fmt.Errorf("push failed: %v; pull also failed: %v", err, pullErr)
+		}
 		res, err = run.Command(ctx, repoPath, nil, "git", "push", "--force-with-lease", "-u", "origin", branch)
 	}
 	return res, err
@@ -185,12 +199,15 @@ func (Git) SyncWithBase(ctx context.Context, repoPath, baseBranch string) error 
 	return nil
 }
 
-func isNonFastForward(err error) bool {
+func isPushRetryable(err error) bool {
 	if err == nil {
 		return false
 	}
 	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "non-fast-forward") || strings.Contains(message, "fetch first") || strings.Contains(message, "tip of your current branch is behind")
+	return strings.Contains(message, "non-fast-forward") ||
+		strings.Contains(message, "fetch first") ||
+		strings.Contains(message, "tip of your current branch is behind") ||
+		strings.Contains(message, "stale info")
 }
 
 func (Git) RemoteURL(ctx context.Context, repoPath, remote string) (string, error) {

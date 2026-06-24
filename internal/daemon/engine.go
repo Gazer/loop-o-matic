@@ -297,6 +297,9 @@ func (e *Engine) prepareWorkspace(ctx context.Context, loop *core.Loop) error {
 			if err := e.git.Fetch(ctx, bare); err != nil {
 				return fmt.Errorf("fetch %s: %w", name, err)
 			}
+			if err := e.git.UpdateBranch(ctx, bare, repoCfg.DefaultBranch); err != nil {
+				return fmt.Errorf("update branch %s: %w", name, err)
+			}
 			baseRef, err := e.git.ResolveBaseRef(ctx, bare, repoCfg.DefaultBranch)
 			if err != nil {
 				return fmt.Errorf("resolve base ref %s: %w", name, err)

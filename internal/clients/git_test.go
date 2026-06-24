@@ -5,10 +5,15 @@ import (
 	"testing"
 )
 
-func TestIsNonFastForward(t *testing.T) {
+func TestIsPushRetryable(t *testing.T) {
 	err := errors.New("failed: non-fast-forward tip of your current branch is behind")
-	if !isNonFastForward(err) {
+	if !isPushRetryable(err) {
 		t.Fatal("expected non-fast-forward error to be detected")
+	}
+
+	err = errors.New("rejected (stale info)")
+	if !isPushRetryable(err) {
+		t.Fatal("expected stale info error to be detected")
 	}
 }
 
