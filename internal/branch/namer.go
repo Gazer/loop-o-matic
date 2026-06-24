@@ -21,25 +21,31 @@ func Generate(ctx context.Context, cfg config.ExecutorConfig, loop *core.Loop, r
 	prompt := Prompt(loop, repoName, ticketText)
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	name, raw, err := runNamePrompt(ctx, cfg, loop, prompt)
-	if err != nil {
-		return "", fmt.Errorf("opencode agent failed to generate branch name: %w", err)
-	}
-	if !Valid(name) {
-		repairPrompt := RepairPrompt(loop, repoName, ticketText, raw, invalidReason(name))
-		repaired, _, repairErr := runNamePrompt(ctx, cfg, loop, repairPrompt)
-		if repairErr == nil && Valid(repaired) {
-			_ = os.WriteFile(filepath.Join(loop.RunDir, repoName+"-branch-name.txt"), []byte(repaired+"\n"), 0o644)
-			return repaired, nil
+
+	var lastRaw string
+	const maxAttempts = 3
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		name, raw, err := runNamePrompt(ctx, cfg, loop, prompt)
+		lastRaw = raw
+		if err != nil {
+			return "", fmt.Errorf("opencode agent failed to generate branch name (attempt %d/%d): %w\nAgent output:\n%s", attempt+1, maxAttempts, err, raw)
 		}
-		return "", fmt.Errorf("agent generated invalid branch name: %q, repair also failed: %w", name, repairErr)
+		if name == "" || !Valid(name) {
+			if attempt < maxAttempts-1 {
+				continue
+			}
+			return "", fmt.Errorf("agent generated invalid branch name: %q (attempt %d/%d)\nAgent output:\n%s", name, attempt+1, maxAttempts, raw)
+		}
+		_ = os.WriteFile(filepath.Join(loop.RunDir, repoName+"-branch-name.txt"), []byte(name+"\n"), 0o644)
+		return name, nil
 	}
-	_ = os.WriteFile(filepath.Join(loop.RunDir, repoName+"-branch-name.txt"), []byte(name+"\n"), 0o644)
-	return name, nil
+	return "", fmt.Errorf("failed to generate branch name after %d attempts\nLast agent output:\n%s", maxAttempts, lastRaw)
 }
 
 func runNamePrompt(ctx context.Context, cfg config.ExecutorConfig, loop *core.Loop, prompt string) (string, string, error) {
 	res, err := opencode.New(cfg).Run(ctx, opencode.RunRequest{Dir: loop.RunDir, Title: loop.IssueKey + " branch name", Prompt: prompt})
+	debugPath := filepath.Join(loop.RunDir, "branch-name-raw-output.txt")
+	_ = os.WriteFile(debugPath, []byte(res.Stdout), 0o644)
 	if err != nil {
 		return "", res.Stdout, err
 	}
@@ -50,7 +56,8 @@ func runNamePrompt(ctx context.Context, cfg config.ExecutorConfig, loop *core.Lo
 func Prompt(loop *core.Loop, repoName, ticketText string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Generate exactly one git branch name for this development task.\n")
-	fmt.Fprintf(&b, "Return only the branch name. No markdown. No explanation.\n\n")
+	fmt.Fprintf(&b, "CRITICAL: You MUST return a non-empty branch name. Never return empty output.\n")
+	fmt.Fprintf(&b, "Return only the branch name. No markdown. No explanation. No quotes. Just the branch name.\n\n")
 	fmt.Fprintf(&b, "Repository: %s\n", repoName)
 	fmt.Fprintf(&b, "Issue/task id: %s\n", loop.IssueKey)
 	fmt.Fprintf(&b, "Summary: %s\n", loop.Summary)
@@ -74,30 +81,8 @@ func Prompt(loop *core.Loop, repoName, ticketText string) string {
 	return b.String()
 }
 
-func RepairPrompt(loop *core.Loop, repoName, ticketText, invalidOutput, reason string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "The previous branch name output was invalid. Generate exactly one corrected git branch name.\n")
-	fmt.Fprintf(&b, "Return only the branch name. No markdown. No explanation.\n\n")
-	fmt.Fprintf(&b, "Invalid output: %s\n", invalidOutput)
-	fmt.Fprintf(&b, "Invalid reason: %s\n\n", reason)
-	fmt.Fprintf(&b, "Repository: %s\n", repoName)
-	fmt.Fprintf(&b, "Issue/task id: %s\n", loop.IssueKey)
-	fmt.Fprintf(&b, "Summary: %s\n", loop.Summary)
-	fmt.Fprintf(&b, "Task context:\n%s\n\n", ticketText)
-	fmt.Fprintf(&b, "Hard requirements:\n")
-	fmt.Fprintf(&b, "- Format: {type}/{jira_ticket}-{short_english_description}\n")
-	fmt.Fprintf(&b, "- Type must be one of: feat, fix, chore, docs, refactor, test, perf, ci, build.\n")
-	fmt.Fprintf(&b, "- Use feat for new behavior/API/callbacks/listeners; use refactor only for behavior-preserving internal reshaping.\n")
-	fmt.Fprintf(&b, "- Description must be short, specific, English, imperative present tense.\n")
-	fmt.Fprintf(&b, "- Do not copy Spanish/non-English words from the user request. Translate intent into English.\n")
-	fmt.Fprintf(&b, "- Use lowercase letters, digits, hyphens, and exactly one slash.\n")
-	fmt.Fprintf(&b, "- Avoid generic descriptions like implement-requested-change.\n")
-	fmt.Fprintf(&b, "Good example for configurable keybindings: feat/%s-configure-action-keybindings\n", slug(loop.IssueKey))
-	return b.String()
-}
-
 func Sanitize(value string) string {
-	value = strings.TrimSpace(value)
+	value = firstLine(value)
 	value = strings.Trim(value, "` \t\r\n")
 	value = strings.ToLower(value)
 	parts := strings.SplitN(value, "/", 2)
@@ -114,16 +99,6 @@ func Sanitize(value string) string {
 
 func Valid(value string) bool {
 	return validBranch.MatchString(value)
-}
-
-func invalidReason(value string) string {
-	if value == "" {
-		return "empty or malformed branch name"
-	}
-	if !validBranch.MatchString(value) {
-		return "branch name does not match required format"
-	}
-	return "unknown validation failure"
 }
 
 func slug(value string) string {
@@ -147,9 +122,19 @@ func slug(value string) string {
 func firstLine(s string) string {
 	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimSpace(line)
-		if line != "" {
-			return line
+		if line == "" {
+			continue
 		}
+		if strings.HasPrefix(line, ">") {
+			continue
+		}
+		if strings.HasPrefix(line, "```") {
+			continue
+		}
+		if !strings.Contains(line, "/") {
+			continue
+		}
+		return line
 	}
 	return ""
 }

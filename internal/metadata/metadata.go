@@ -30,29 +30,48 @@ func Generate(ctx context.Context, cfg config.ExecutorConfig, loop *core.Loop, r
 	prompt := Prompt(loop, repo, baseBranch, cfg.Model, evidence)
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	res, err := opencode.New(cfg).Run(ctx, opencode.RunRequest{Dir: repo.Path, Title: loop.IssueKey + " commit pr metadata", Prompt: prompt})
-	if err != nil {
-		return Metadata{}, fmt.Errorf("opencode agent failed to generate PR metadata: %w", err)
+
+	const maxAttempts = 3
+	var lastOutput string
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		res, err := opencode.New(cfg).Run(ctx, opencode.RunRequest{Dir: repo.Path, Title: loop.IssueKey + " commit pr metadata", Prompt: prompt})
+		lastOutput = res.Stdout
+		if err != nil {
+			return Metadata{}, fmt.Errorf("opencode agent failed to generate PR metadata (attempt %d/%d): %w\nAgent output:\n%s", attempt+1, maxAttempts, err, res.Stdout)
+		}
+		meta, err := parse(res.Stdout)
+		if err != nil {
+			if attempt < maxAttempts-1 {
+				continue
+			}
+			return Metadata{}, fmt.Errorf("failed to parse PR metadata from agent output (attempt %d/%d): %w\nAgent output:\n%s", attempt+1, maxAttempts, err, res.Stdout)
+		}
+		meta = sanitize(meta)
+		if !ValidTitle(meta.Title) {
+			if attempt < maxAttempts-1 {
+				continue
+			}
+			return Metadata{}, fmt.Errorf("agent generated invalid conventional title: %q (attempt %d/%d)\nAgent output:\n%s", meta.Title, attempt+1, maxAttempts, res.Stdout)
+		}
+		if strings.TrimSpace(meta.PRBody) == "" {
+			if attempt < maxAttempts-1 {
+				continue
+			}
+			return Metadata{}, fmt.Errorf("agent generated empty PR body (attempt %d/%d)\nAgent output:\n%s", attempt+1, maxAttempts, res.Stdout)
+		}
+		if strings.TrimSpace(meta.CommitBody) == "" {
+			if attempt < maxAttempts-1 {
+				continue
+			}
+			return Metadata{}, fmt.Errorf("agent generated empty commit body (attempt %d/%d)\nAgent output:\n%s", attempt+1, maxAttempts, res.Stdout)
+		}
+		meta.Model = cfg.Model
+		meta.CommitBody = EnsureCommitFooter(meta.CommitBody, cfg.Model, loop.IssueKey)
+		meta.PRBody = EnsurePRFooter(meta.PRBody, cfg.Model)
+		write(loop, repo, meta)
+		return meta, nil
 	}
-	meta, err := parse(res.Stdout)
-	if err != nil {
-		return Metadata{}, fmt.Errorf("failed to parse PR metadata from agent output: %w", err)
-	}
-	meta = sanitize(meta)
-	if !ValidTitle(meta.Title) {
-		return Metadata{}, fmt.Errorf("agent generated invalid conventional title: %q", meta.Title)
-	}
-	if strings.TrimSpace(meta.PRBody) == "" {
-		return Metadata{}, fmt.Errorf("agent generated empty PR body")
-	}
-	if strings.TrimSpace(meta.CommitBody) == "" {
-		return Metadata{}, fmt.Errorf("agent generated empty commit body")
-	}
-	meta.Model = cfg.Model
-	meta.CommitBody = EnsureCommitFooter(meta.CommitBody, cfg.Model, loop.IssueKey)
-	meta.PRBody = EnsurePRFooter(meta.PRBody, cfg.Model)
-	write(loop, repo, meta)
-	return meta, nil
+	return Metadata{}, fmt.Errorf("failed to generate PR metadata after %d attempts\nLast agent output:\n%s", maxAttempts, lastOutput)
 }
 
 type Evidence struct {
@@ -80,7 +99,8 @@ func CollectEvidence(ctx context.Context, loop *core.Loop, repo core.RepoRun) Ev
 func Prompt(loop *core.Loop, repo core.RepoRun, baseBranch, model string, evidence Evidence) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Generate commit and pull request metadata for this repository change.\n")
-	fmt.Fprintf(&b, "Return JSON only. No markdown. No explanation.\n\n")
+	fmt.Fprintf(&b, "CRITICAL: You MUST return valid JSON with non-empty title, commit_body, and pr_body fields. Never return empty output.\n")
+	fmt.Fprintf(&b, "Return JSON only. No markdown. No explanation. No quotes around the JSON.\n\n")
 	fmt.Fprintf(&b, "Required JSON shape:\n{\"title\":\"...\",\"commit_body\":\"...\",\"pr_body\":\"...\"}\n\n")
 	fmt.Fprintf(&b, "Repository: %s\n", repo.RepoName)
 	fmt.Fprintf(&b, "Repo path: %s\n", repo.Path)
