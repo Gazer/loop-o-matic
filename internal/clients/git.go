@@ -236,7 +236,7 @@ func (Git) RemoveWorktree(ctx context.Context, repoPath string, force bool) erro
 		args = append(args, "--force")
 	}
 	args = append(args, repoPath)
-	_, err := run.Command(ctx, "", nil, "git", args...)
+	_, err := run.Command(ctx, repoPath, nil, "git", args...)
 	return err
 }
 
