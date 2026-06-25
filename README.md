@@ -86,6 +86,115 @@ loop delete TASK-20260616-005950 --force
 loopd attach SDK-123
 ```
 
+## TUI (Interactive Dashboard)
+
+Running `loop` without arguments opens the interactive TUI dashboard:
+
+```bash
+loop
+```
+
+The TUI provides a real-time view of all loops with:
+
+- **Left panel**: List of loops with status indicators (✓ completed, ► active, ◉ paused, ✗ failed)
+- **Right panel**: Split into two columns:
+  - **Left column**: Loop details (issue, status, summary, repos, dates, errors, repo runs)
+  - **Right column**: ASCII flow diagram showing the loop lifecycle with animated progress
+
+### Flow Diagram
+
+The diagram visualizes the loop lifecycle:
+
+```
+╭──────────╮
+│  created │
+╰─────┬────╯
+      │
+╭─────▼────╮
+│ preparing│
+╰─────┬────╯
+      │
+╭─────▼────╮
+│discovering│
+╰─────┬────╯
+      │
+╭─────▼────╮  ◀───────┐
+│implementing│          │
+╰─────┬────╯          │
+      │                │
+╭─────▼────╮  ─────────┤
+│ verifying│            │
+╰─────┬────╯          │
+      │                │
+╭─────▼────╮          │
+│creating_prs│         │
+╰─────┬────╯          │
+      │                │
+╭─────▼────╮  ─────────┤
+│monitoring_ci│        │
+╰─────┬────╯          │
+      │                │
+╭─────▼────╮  ─────────┘
+│  review  │
+╰─────┬────╯
+      │
+╭─────▼────╮
+│   done   │
+╰──────────╯
+```
+
+- **Green**: Completed steps
+- **Violet (pulsing)**: Current step with animated rotating border
+- **Gray**: Pending steps
+- **Feedback arrows**: Show paths from verifying/CI/review back to implementing
+
+### Hotkeys
+
+| Key | Action |
+|-----|--------|
+| `↑`/`↓` or `k`/`j` | Navigate loop list |
+| `n` | Create new task (opens text input, then repo picker) |
+| `p` | Pause/resume selected loop |
+| `x` | Cancel selected loop |
+| `d` | Delete selected loop (with confirmation) |
+| `r` | Refresh loop list |
+| `q` / `Ctrl+C` | Quit |
+
+### Responsive Layout
+
+The TUI adapts to terminal width:
+
+| Width | Behavior |
+|-------|----------|
+| `< 14px` | No diagram shown |
+| `14-25px` | Diagram with abbreviated labels (`crt`, `prep`, `disc`, `impl`, `ver`, `prs`, `ci`, `rev`, `done`) |
+| `26-43px` | Diagram with full labels, no feedback arrows |
+| `≥ 44px` | Full layout: details + diagram with feedback arrows |
+
+### New Task Flow
+
+1. Press `n` to open the text input
+2. Type the task description and press Enter
+3. If multiple repos are configured, a multi-select repo picker appears
+4. Use `↑`/`↓` to navigate, `space` to toggle repos (shown as `●`)
+5. Press Enter to confirm (at least one repo must be selected)
+6. The task is created and appears in the list
+
+```
+┌─ Pick repositories ──────────────────┐
+│                                      │
+│ Task:                                │
+│ fix login bug                        │
+│ space: toggle · enter: confirm       │
+│                                      │
+│  → ● frontend                        │
+│    ○ backend                         │
+│    ○ api                             │
+│                                      │
+│ 1 selected                           │
+└──────────────────────────────────────┘
+```
+
 ## Delete Tasks
 
 ```bash
