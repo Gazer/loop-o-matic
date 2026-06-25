@@ -35,16 +35,17 @@ type model struct {
 	repoRuns  []core.RepoRun
 	state     ModelState
 	textInput textinput.Model
-	repoNames []string
-	repoCursor int
-	prURLs    []string
-	prCursor  int
-	width     int
-	height    int
-	store     *store.Store
-	cfg       *config.Config
-	err       error
-	message   string
+	repoNames   []string
+	repoCursor  int
+	repoSelected map[string]bool
+	prURLs      []string
+	prCursor    int
+	width       int
+	height      int
+	store       *store.Store
+	cfg         *config.Config
+	err         error
+	message     string
 }
 
 type loopsLoadedMsg struct {
@@ -345,6 +346,7 @@ func (m model) updateNewTask(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.state = statePickRepo
 		m.repoCursor = 0
+		m.repoSelected = make(map[string]bool)
 		return m, nil
 
 	default:
@@ -371,10 +373,22 @@ func (m model) updatePickRepo(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.repoCursor++
 		}
 
+	case msg.String() == " ":
+		repo := m.repoNames[m.repoCursor]
+		m.repoSelected[repo] = !m.repoSelected[repo]
+
 	case keyMatches(msg, keys.Enter):
 		text := strings.TrimSpace(m.textInput.Value())
-		repo := m.repoNames[m.repoCursor]
-		return m, m.createTask(text, repo)
+		var selected []string
+		for _, r := range m.repoNames {
+			if m.repoSelected[r] {
+				selected = append(selected, r)
+			}
+		}
+		if len(selected) == 0 {
+			return m, nil
+		}
+		return m, m.createTask(text, strings.Join(selected, ","))
 	}
 
 	return m, nil
@@ -513,18 +527,39 @@ func (m model) renderDetailPanel(width int) string {
 func (m model) renderRepoPicker(width int) string {
 	var items []string
 
-	title := panelTitleStyle.Render("Pick repository")
+	title := panelTitleStyle.Render("Pick repositories")
 	items = append(items, title, "")
 	items = append(items, helpStyle.Render("Task:"), m.textInput.Value(), "")
+	items = append(items, helpStyle.Render("space: toggle · enter: confirm"), "")
 
 	for i, repo := range m.repoNames {
+		checkbox := "○"
+		if m.repoSelected[repo] {
+			checkbox = "●"
+		}
+
 		var line string
 		if i == m.repoCursor {
-			line = repoItemSelectedStyle.Width(width - 8).Render(" → "+repo)
+			line = repoItemSelectedStyle.Width(width - 8).Render(" → " + checkbox + " " + repo)
 		} else {
-			line = repoItemStyle.Width(width - 8).Render("   "+repo)
+			if m.repoSelected[repo] {
+				line = lipgloss.NewStyle().Foreground(colorSuccess).Width(width - 8).Render("   " + checkbox + " " + repo)
+			} else {
+				line = repoItemStyle.Width(width - 8).Render("   " + checkbox + " " + repo)
+			}
 		}
 		items = append(items, line)
+	}
+
+	selectedCount := 0
+	for _, r := range m.repoNames {
+		if m.repoSelected[r] {
+			selectedCount++
+		}
+	}
+	if selectedCount > 0 {
+		items = append(items, "")
+		items = append(items, helpStyle.Render(fmt.Sprintf("%d selected", selectedCount)))
 	}
 
 	content := strings.Join(items, "\n")
@@ -583,7 +618,7 @@ func (m model) renderFooter() string {
 	case stateNewTask:
 		return inputPromptStyle.Render(" New task: ") + m.textInput.View() + helpStyle.Render("  enter confirm · esc cancel")
 	case statePickRepo:
-		parts = []string{"↑↓ pick repo", "enter confirm", "esc back"}
+		parts = []string{"↑↓ navigate", "space toggle", "enter confirm", "esc back"}
 	case stateConfirmDelete:
 		return confirmStyle.Render(" Delete this loop? ") + helpStyle.Render("enter confirm · esc cancel")
 	case statePickPR:
