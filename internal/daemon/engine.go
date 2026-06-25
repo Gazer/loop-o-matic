@@ -303,11 +303,8 @@ func (e *Engine) prepareWorkspace(ctx context.Context, loop *core.Loop) error {
 				}
 			}
 			e.logger.Info(ctx, loop, "fetching %s", name)
-			if err := e.git.Fetch(ctx, bare); err != nil {
+			if err := e.git.Fetch(ctx, bare, repoCfg.DefaultBranch); err != nil {
 				return fmt.Errorf("fetch %s: %w", name, err)
-			}
-			if err := e.git.UpdateBranch(ctx, bare, repoCfg.DefaultBranch); err != nil {
-				return fmt.Errorf("update branch %s: %w", name, err)
 			}
 			baseRef, err := e.git.ResolveBaseRef(ctx, bare, repoCfg.DefaultBranch)
 			if err != nil {

@@ -28,8 +28,8 @@ func TestMergeConflictError(t *testing.T) {
 	}
 }
 
-func TestBareBranchRef(t *testing.T) {
-	if got := bareBranchRef("main"); got != "refs/heads/main" {
-		t.Fatalf("expected refs/heads/main, got %q", got)
+func TestBareFetchRefSpec(t *testing.T) {
+	if got := bareFetchRefSpec("main"); got != "main:main" {
+		t.Fatalf("expected main:main, got %q", got)
 	}
 }

@@ -20,21 +20,20 @@ func (Git) CloneBare(ctx context.Context, remoteURL, bareRepo string) error {
 	return err
 }
 
-func (Git) Fetch(ctx context.Context, bareRepo string) error {
-	_, err := run.Command(ctx, "", nil, "git", "--git-dir", bareRepo, "fetch", "--all", "--prune")
-	return err
-}
-
-func (Git) UpdateBranch(ctx context.Context, bareRepo, branch string) error {
+func (Git) Fetch(ctx context.Context, bareRepo, branch string) error {
 	if branch == "" {
-		return nil
+		_, err := run.Command(ctx, "", nil, "git", "--git-dir", bareRepo, "fetch", "--all", "--prune")
+		return err
 	}
-	_, err := run.Command(ctx, "", nil, "git", "--git-dir", bareRepo, "branch", "-f", branch, bareBranchRef(branch))
+	if _, err := run.Command(ctx, "", nil, "git", "--git-dir", bareRepo, "fetch", "--prune", "origin"); err != nil {
+		return err
+	}
+	_, err := run.Command(ctx, "", nil, "git", "--git-dir", bareRepo, "fetch", "origin", bareFetchRefSpec(branch), "--prune")
 	return err
 }
 
-func bareBranchRef(branch string) string {
-	return "refs/heads/" + branch
+func bareFetchRefSpec(branch string) string {
+	return branch + ":" + branch
 }
 
 func (Git) AddWorktree(ctx context.Context, bareRepo, worktreePath, branch, baseRef string) error {
@@ -45,7 +44,7 @@ func (Git) AddWorktree(ctx context.Context, bareRepo, worktreePath, branch, base
 func (Git) ResolveBaseRef(ctx context.Context, bareRepo, preferredBranch string) (string, error) {
 	candidates := []string{}
 	if preferredBranch != "" {
-		candidates = append(candidates, preferredBranch, "refs/heads/"+preferredBranch, "origin/"+preferredBranch)
+		candidates = append(candidates, "refs/heads/"+preferredBranch, preferredBranch, "origin/"+preferredBranch)
 	}
 	if head, err := bareHEAD(ctx, bareRepo); err == nil && head != "" {
 		candidates = append(candidates, head)
