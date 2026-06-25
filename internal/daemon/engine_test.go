@@ -104,6 +104,59 @@ func TestVerifyTransitionsToCreatingPRs(t *testing.T) {
 	}
 }
 
+func TestVerifyRetriesWhenSummaryReportsFailure(t *testing.T) {
+	ctx := context.Background()
+	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	logger, err := logging.New(s, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logger.Close()
+
+	runDir := t.TempDir()
+	summaryPath := filepath.Join(runDir, "verification-summary.md")
+	if err := os.WriteFile(summaryPath, []byte("# MOBILE-17686 Verification Summary\n\n## Verdict\n- Blocked: verification could not be completed because the repo fails to compile in `:core`.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	loop := &core.Loop{
+		IssueKey:   "TASK-1",
+		Summary:    "test",
+		Status:     core.StatusVerifying,
+		RunDir:     runDir,
+		TicketPath: filepath.Join(runDir, "ticket.md"),
+		PlanPath:   filepath.Join(runDir, "plan.md"),
+	}
+	if err := s.CreateLoop(ctx, loop); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Daemon: config.DaemonConfig{MaxAutoRetries: 3},
+	}
+	e := &Engine{cfg: cfg, store: s, logger: logger, notify: &notify.NoOp{}}
+
+	if err := e.verify(ctx, loop); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := s.GetLoopByID(ctx, loop.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != core.StatusImplementing {
+		t.Fatalf("expected status implementing, got %s", updated.Status)
+	}
+	if updated.LastError == "" {
+		t.Fatal("expected last error to be set")
+	}
+}
+
 func TestVerifyRetriesOnFailure(t *testing.T) {
 	ctx := context.Background()
 	s, err := store.Open(filepath.Join(t.TempDir(), "state.sqlite"))

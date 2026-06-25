@@ -623,8 +623,15 @@ func (e *Engine) verificationPrompt(ctx context.Context, loop *core.Loop) string
 	fmt.Fprintf(&b, "5. If any issues are found (missing imports, broken tests, compilation errors, logic mismatches, convention violations), report them in detail. Be thorough — describe exactly what is wrong, where, and why it matters. This is only a verification step, not a fix step.\n")
 	fmt.Fprintf(&b, "6. Do not expand scope beyond verification. Do not implement unrelated improvements or features. Do not fix or modify code. This is a verification step only.\n")
 	fmt.Fprintf(&b, "7. Do not commit, push, create PRs, merge, or comment externally.\n")
-	fmt.Fprintf(&b, "8. Write a concise verification report to %s, including commands run, results, any issues found, and any commands intentionally skipped with reasons.\n", filepath.Join(loop.RunDir, "verification-summary.md"))
-	fmt.Fprintf(&b, "\nIf verification fails (e.g., compilation errors, test failures, logic is incorrect), write the blocker details and failed test results to verification-summary.md and exit non-zero. Do not modify code to fix these issues — this is a verification step only.\n")
+	fmt.Fprintf(&b, "8. Write a concise verification report to %s using this structure:\n", filepath.Join(loop.RunDir, "verification-summary.md"))
+	fmt.Fprintf(&b, "   - ## Verdict\n")
+	fmt.Fprintf(&b, "   - Use exactly one of: Passed, Failed, Blocked.\n")
+	fmt.Fprintf(&b, "   - Failed means verification found code defects or test/build failures.\n")
+	fmt.Fprintf(&b, "   - Blocked means verification could not be completed because the repo/workspace is not in a state that can be verified.\n")
+	fmt.Fprintf(&b, "   - ## Evidence\n")
+	fmt.Fprintf(&b, "   - Include commands run, results, and any issues found.\n")
+	fmt.Fprintf(&b, "   - Mention any commands intentionally skipped with reasons.\n")
+	fmt.Fprintf(&b, "\nIf verification is not Passed, write the blocker details and failed test results to verification-summary.md and exit non-zero. Do not modify code to fix these issues — this is a verification step only.\n")
 	return b.String()
 }
 
@@ -634,7 +641,12 @@ func (e *Engine) verify(ctx context.Context, loop *core.Loop) error {
 		return err
 	}
 	verificationSummary := filepath.Join(loop.RunDir, "verification-summary.md")
-	if _, err := os.Stat(verificationSummary); os.IsNotExist(err) {
+	if data, err := os.ReadFile(verificationSummary); err == nil {
+		if verificationSummaryIndicatesFailure(string(data)) {
+			return e.retryOrPause(ctx, loop, strings.TrimSpace(string(data)))
+		}
+		e.logger.Info(ctx, loop, "verification summary exists, skipping verification agent")
+	} else if os.IsNotExist(err) {
 		promptPath := filepath.Join(loop.RunDir, "verification-prompt.md")
 		prompt := e.verificationPrompt(ctx, loop)
 		if err := e.runAgent(ctx, loop, "verification", promptPath, prompt); err != nil {
@@ -664,13 +676,27 @@ func (e *Engine) verify(ctx context.Context, loop *core.Loop) error {
 			}
 			return e.retryOrPause(ctx, loop, msg)
 		}
-	} else if err != nil {
-		return err
 	} else {
-		e.logger.Info(ctx, loop, "verification summary exists, skipping verification agent")
+		return err
 	}
 
 	return e.setStatus(ctx, loop, core.StatusCreatingPRs, "")
+}
+
+func verificationSummaryIndicatesFailure(summary string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(summary))
+	if normalized == "" {
+		return false
+	}
+	if strings.Contains(normalized, "## verdict") {
+		if strings.Contains(normalized, "passed") && !strings.Contains(normalized, "failed") && !strings.Contains(normalized, "blocked") {
+			return false
+		}
+		if strings.Contains(normalized, "failed") || strings.Contains(normalized, "blocked") {
+			return true
+		}
+	}
+	return strings.Contains(normalized, "verification failed") || strings.Contains(normalized, "result: failed") || strings.Contains(normalized, "verification: failed") || strings.Contains(normalized, "blocked:")
 }
 
 func (e *Engine) createPRs(ctx context.Context, loop *core.Loop) error {
@@ -699,7 +725,14 @@ func (e *Engine) createPRs(ctx context.Context, loop *core.Loop) error {
 		}
 		changedCount++
 		e.logger.Info(ctx, loop, "%s is affected", repo.RepoName)
-		meta, err := metadata.Generate(ctx, e.cfg.Executor, loop, repo, e.cfg.Repos[repo.RepoName].DefaultBranch)
+		var existingTitle, existingBody string
+		if repo.PRNumber != 0 {
+			existingTitle, existingBody, err = e.gh.PRDetails(ctx, repo.Path, repo.PRNumber)
+			if err != nil {
+				return fmt.Errorf("read PR details %s: %w", repo.RepoName, err)
+			}
+		}
+		meta, err := metadata.Generate(ctx, e.cfg.Executor, loop, repo, e.cfg.Repos[repo.RepoName].DefaultBranch, existingTitle, existingBody)
 		if err != nil {
 			e.logger.Info(ctx, loop, "metadata agent output was not usable for %s; using fallback metadata: %v", repo.RepoName, err)
 		}
@@ -736,6 +769,13 @@ func (e *Engine) createPRs(ctx context.Context, loop *core.Loop) error {
 			repo.PRURL = url
 			repo.PRNumber = number
 			e.logger.Info(ctx, loop, "%s PR created: %s", repo.RepoName, url)
+		} else if repo.PRNumber != 0 {
+			if strings.TrimSpace(meta.PRBody) != existingBody {
+				if err := e.gh.UpdatePR(ctx, repo.Path, repo.PRNumber, "", meta.PRBody); err != nil {
+					return fmt.Errorf("update PR %s: %w", repo.RepoName, err)
+				}
+				e.logger.Info(ctx, loop, "%s PR body updated: %s", repo.RepoName, repo.PRURL)
+			}
 		}
 		if err := e.store.UpsertRepoRun(ctx, repo); err != nil {
 			return err

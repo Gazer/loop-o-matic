@@ -25,9 +25,9 @@ type Metadata struct {
 	Model      string `json:"model"`
 }
 
-func Generate(ctx context.Context, cfg config.ExecutorConfig, loop *core.Loop, repo core.RepoRun, baseBranch string) (Metadata, error) {
-	evidence := CollectEvidence(ctx, loop, repo)
-	prompt := Prompt(loop, repo, baseBranch, cfg.Model, evidence)
+func Generate(ctx context.Context, cfg config.ExecutorConfig, loop *core.Loop, repo core.RepoRun, baseBranch, existingPRTitle, existingPRBody string) (Metadata, error) {
+	evidence := CollectEvidence(ctx, loop, repo, baseBranch)
+	prompt := Prompt(loop, repo, baseBranch, cfg.Model, existingPRTitle, existingPRBody, evidence)
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
@@ -84,19 +84,20 @@ type Evidence struct {
 	Diff                  string
 }
 
-func CollectEvidence(ctx context.Context, loop *core.Loop, repo core.RepoRun) Evidence {
+func CollectEvidence(ctx context.Context, loop *core.Loop, repo core.RepoRun, baseBranch string) Evidence {
+	rangeSpec := baseBranch + "...HEAD"
 	return Evidence{
 		TicketSummary:         readText(loop.TicketPath, 12000),
 		ExtraInstructions:     readText(loop.ExtraInstructionsPath, 12000),
 		Plan:                  readText(loop.PlanPath, 12000),
 		ImplementationSummary: readText(filepath.Join(loop.RunDir, "implementation-summary.md"), 16000),
 		VerificationSummary:   readText(filepath.Join(loop.RunDir, "verification-summary.md"), 16000),
-		DiffStat:              firstNonEmpty(gitOutput(ctx, repo.Path, "diff", "--stat", "HEAD"), gitOutput(ctx, repo.Path, "show", "--stat", "--format=medium", "HEAD")),
-		Diff:                  firstNonEmpty(gitOutput(ctx, repo.Path, "diff", "--find-renames", "--find-copies", "HEAD"), gitOutput(ctx, repo.Path, "show", "--find-renames", "--find-copies", "--format=medium", "HEAD")),
+		DiffStat:              firstNonEmpty(gitOutput(ctx, repo.Path, "diff", "--stat", rangeSpec), gitOutput(ctx, repo.Path, "show", "--stat", "--format=medium", "HEAD")),
+		Diff:                  firstNonEmpty(gitOutput(ctx, repo.Path, "diff", "--find-renames", "--find-copies", rangeSpec), gitOutput(ctx, repo.Path, "show", "--find-renames", "--find-copies", "--format=medium", "HEAD")),
 	}
 }
 
-func Prompt(loop *core.Loop, repo core.RepoRun, baseBranch, model string, evidence Evidence) string {
+func Prompt(loop *core.Loop, repo core.RepoRun, baseBranch, model, existingPRTitle, existingPRBody string, evidence Evidence) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Generate commit and pull request metadata for this repository change.\n")
 	fmt.Fprintf(&b, "CRITICAL: You MUST return valid JSON with non-empty title, commit_body, and pr_body fields. Never return empty output.\n")
@@ -109,6 +110,11 @@ func Prompt(loop *core.Loop, repo core.RepoRun, baseBranch, model string, eviden
 	fmt.Fprintf(&b, "Summary: %s\n", loop.Summary)
 	fmt.Fprintf(&b, "Important: the user request may be in Spanish or another language. Translate and summarize the actual change in English. Never copy non-English words from the request into title, commit_body, or pr_body.\n")
 	fmt.Fprintf(&b, "Model used to generate code: %s\n\n", model)
+	if strings.TrimSpace(existingPRTitle) != "" || strings.TrimSpace(existingPRBody) != "" {
+		fmt.Fprintf(&b, "Existing PR metadata already exists and should be re-evaluated against the current change. Treat the PR title as stable context for the ticket; focus on updating the PR body to reflect the full accumulated change set.\n")
+		writeSection(&b, "Current PR Title", existingPRTitle)
+		writeSection(&b, "Current PR Body", existingPRBody)
+	}
 	fmt.Fprintf(&b, "Evidence to use when writing human-readable metadata:\n")
 	writeSection(&b, "Ticket / Task", evidence.TicketSummary)
 	writeSection(&b, "Additional User Instructions", evidence.ExtraInstructions)

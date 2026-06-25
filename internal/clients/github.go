@@ -39,6 +39,39 @@ func (g GitHub) CreatePR(ctx context.Context, repoPath, base, head, title, body 
 	return url, number, nil
 }
 
+func (g GitHub) UpdatePR(ctx context.Context, repoPath string, number int, title, body string) error {
+	if number <= 0 {
+		return fmt.Errorf("pr number is required")
+	}
+	args := []string{"pr", "edit", strconv.Itoa(number)}
+	if strings.TrimSpace(title) != "" {
+		args = append(args, "--title", title)
+	}
+	if strings.TrimSpace(body) != "" {
+		args = append(args, "--body", body)
+	}
+	_, err := run.Command(ctx, repoPath, nil, g.cli, args...)
+	return err
+}
+
+func (g GitHub) PRDetails(ctx context.Context, repoPath string, number int) (string, string, error) {
+	if number <= 0 {
+		return "", "", fmt.Errorf("pr number is required")
+	}
+	res, err := run.Command(ctx, repoPath, nil, g.cli, "pr", "view", strconv.Itoa(number), "--json", "title,body")
+	if err != nil {
+		return "", "", err
+	}
+	var raw struct {
+		Title string `json:"title"`
+		Body  string `json:"body"`
+	}
+	if err := json.Unmarshal([]byte(res.Stdout), &raw); err != nil {
+		return "", "", err
+	}
+	return strings.TrimSpace(raw.Title), strings.TrimSpace(raw.Body), nil
+}
+
 type PRStatus struct {
 	ReviewDecision string
 	ChecksState    string

@@ -3,6 +3,8 @@ package metadata
 import (
 	"strings"
 	"testing"
+
+	"loop-o-matic/internal/core"
 )
 
 func TestEnsurePRFooterAddsCoauthorAndModel(t *testing.T) {
@@ -38,5 +40,15 @@ func TestParseFencedJSON(t *testing.T) {
 	}
 	if meta.Title != "feat: configure action keybindings" {
 		t.Fatalf("unexpected title: %s", meta.Title)
+	}
+}
+
+func TestPromptIncludesExistingPRContext(t *testing.T) {
+	prompt := Prompt(&core.Loop{IssueKey: "TASK-1", Summary: "Add feature"}, core.RepoRun{RepoName: "repo", Path: "/tmp/repo"}, "main", "test-model", "feat: old title", "Old body", Evidence{})
+	if !strings.Contains(prompt, "Treat the PR title as stable context for the ticket") {
+		t.Fatalf("missing existing PR guidance: %s", prompt)
+	}
+	if !strings.Contains(prompt, "Current PR Title") || !strings.Contains(prompt, "Current PR Body") {
+		t.Fatalf("missing current PR sections: %s", prompt)
 	}
 }
