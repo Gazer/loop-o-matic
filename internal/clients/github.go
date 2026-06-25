@@ -266,11 +266,15 @@ func isBotAuthor(author string) bool {
 		strings.Contains(author, "-ci-") ||
 		strings.Contains(author, "_ci_")
 
+	isGitHubActions := author == "github-actions" ||
+		strings.HasPrefix(author, "github-actions") ||
+		strings.Contains(author, "github-actions")
+
 	isLoop := strings.Contains(author, "loop-o-matic")
 
 	isCopilot := strings.Contains(author, "copilot")
 
-	return isBot || isCI || isLoop || isCopilot
+	return isBot || isCI || isGitHubActions || isLoop || isCopilot
 }
 
 func decodeMap(raw json.RawMessage) map[string]any {

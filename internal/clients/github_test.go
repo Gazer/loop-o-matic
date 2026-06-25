@@ -43,6 +43,7 @@ func TestPRFeedback(t *testing.T) {
 func TestHumanFeedbackFiltersBots(t *testing.T) {
 	feedback := []PRFeedback{
 		{Author: "contentsquare-ci", Body: "bot summary"},
+		{Author: "github-actions", Body: "actions summary"},
 		{Author: "renovate[bot]", Body: "bot"},
 		{Author: "copilot-swe-agent", Body: "copilot resolved"},
 		{Author: "github-copilot", Body: "copilot summary"},
