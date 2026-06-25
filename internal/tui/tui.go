@@ -61,8 +61,10 @@ type loopUpdatedMsg struct {
 }
 
 type tickMsg struct{}
+type animMsg struct{}
 
 const tickInterval = 2 * time.Second
+const animInterval = 50 * time.Millisecond
 
 func New(cfg *config.Config, s *store.Store) model {
 	ti := textinput.New()
@@ -80,12 +82,18 @@ func New(cfg *config.Config, s *store.Store) model {
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(m.loadLoops(), tickCmd())
+	return tea.Batch(m.loadLoops(), tickCmd(), animTickCmd())
 }
 
 func tickCmd() tea.Cmd {
 	return tea.Tick(tickInterval, func(time.Time) tea.Msg {
 		return tickMsg{}
+	})
+}
+
+func animTickCmd() tea.Cmd {
+	return tea.Tick(animInterval, func(time.Time) tea.Msg {
+		return animMsg{}
 	})
 }
 
@@ -220,6 +228,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		return m, tea.Batch(m.loadLoops(), tickCmd())
+
+	case animMsg:
+		return m, animTickCmd()
 
 	case tea.KeyMsg:
 		m.err = nil

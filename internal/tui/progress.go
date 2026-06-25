@@ -3,6 +3,7 @@ package tui
 import (
 	"regexp"
 	"strings"
+	"time"
 
 	"loop-o-matic/internal/core"
 
@@ -13,6 +14,71 @@ var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func visLen(s string) int {
 	return len([]rune(ansiRegex.ReplaceAllString(s, "")))
+}
+
+func rotatingBox(inner, topBorder, border string, c lipgloss.TerminalColor, center int) (string, string, string) {
+	topRunes := []rune("╭" + topBorder + "╮")
+	midRunes := []rune("│" + inner + "│")
+	botRunes := []rune("╰" + border + "╯")
+
+	type pos struct{ line, col int }
+	var borderPos []pos
+
+	for j := 0; j < len(topRunes); j++ {
+		borderPos = append(borderPos, pos{0, j})
+	}
+	borderPos = append(borderPos, pos{1, len(midRunes) - 1})
+	for j := len(botRunes) - 1; j >= 0; j-- {
+		borderPos = append(borderPos, pos{2, j})
+	}
+	borderPos = append(borderPos, pos{1, 0})
+
+	totalPerim := len(borderPos)
+	curPos := int((time.Now().UnixMilli() / 100) % int64(totalPerim))
+
+	bright := lipgloss.NewStyle().Foreground(lipgloss.Color("#E9D5FF")).Bold(true)
+	medium := lipgloss.NewStyle().Foreground(lipgloss.Color("#C4B5FD"))
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#8B5CF6"))
+	def := lipgloss.NewStyle().Foreground(c)
+
+	lines := []string{string(topRunes), string(midRunes), string(botRunes)}
+	result := make([]string, 3)
+
+	for lineIdx := 0; lineIdx < 3; lineIdx++ {
+		runes := []rune(lines[lineIdx])
+		var buf strings.Builder
+		for colIdx, r := range runes {
+			isBorderChar := r == '╭' || r == '╮' || r == '╯' || r == '╰' || r == '│' || r == '─'
+			if !isBorderChar {
+				buf.WriteString(def.Render(string(r)))
+				continue
+			}
+
+			bestDist := totalPerim
+			for pi, p := range borderPos {
+				if p.line == lineIdx && p.col == colIdx {
+					d := (curPos - pi + totalPerim) % totalPerim
+					if d < bestDist {
+						bestDist = d
+					}
+				}
+			}
+
+			switch {
+			case bestDist == 0:
+				buf.WriteString(bright.Render(string(r)))
+			case bestDist == 1:
+				buf.WriteString(medium.Render(string(r)))
+			case bestDist == 2:
+				buf.WriteString(dim.Render(string(r)))
+			default:
+				buf.WriteString(def.Render(string(r)))
+			}
+		}
+		result[lineIdx] = buf.String()
+	}
+
+	return result[0], result[1], result[2]
 }
 
 var flowSteps = []struct {
@@ -156,16 +222,28 @@ func renderFlowDiagram(focusIdx, failIdx int, failStatus string, width int) stri
 		}
 		inner := strings.Repeat("─", lp) + " " + label + " " + strings.Repeat("─", rp)
 
-		top := border
-		if i > 0 {
-			topRunes := []rune(border)
-			topRunes[center-1] = '▼'
-			top = string(topRunes)
+		if i == focusIdx && failIdx == -1 {
+			topBorder := border
+			if i > 0 {
+				topRunes := []rune(border)
+				topRunes[center-1] = '▼'
+				topBorder = string(topRunes)
+			}
+			top, mid, bot := rotatingBox(inner, topBorder, border, c, center)
+			lines = append(lines, top)
+			lines = append(lines, mid)
+			lines = append(lines, bot)
+		} else {
+			top := border
+			if i > 0 {
+				topRunes := []rune(border)
+				topRunes[center-1] = '▼'
+				top = string(topRunes)
+			}
+			lines = append(lines, styled(c, b, "╭"+top+"╮"))
+			lines = append(lines, styled(c, b, "│"+inner+"│"))
+			lines = append(lines, styled(c, b, "╰"+border+"╯"))
 		}
-
-		lines = append(lines, styled(c, b, "╭"+top+"╮"))
-		lines = append(lines, styled(c, b, "│"+inner+"│"))
-		lines = append(lines, styled(c, b, "╰"+border+"╯"))
 
 		if i < len(flowSteps)-1 {
 			lines = append(lines, styled(c, b, strings.Repeat(" ", center)+"│"))
