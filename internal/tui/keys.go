@@ -13,6 +13,7 @@ type keyMap struct {
 	Pause      key.Binding
 	Cancel     key.Binding
 	Delete     key.Binding
+	OpenPR     key.Binding
 	Refresh    key.Binding
 	Quit       key.Binding
 	Escape     key.Binding
@@ -24,7 +25,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 }
 
 func (k keyMap) FullHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Enter, k.NewTask, k.Pause, k.Cancel, k.Delete, k.Refresh, k.Quit}
+	return []key.Binding{k.Up, k.Down, k.Enter, k.NewTask, k.Pause, k.Cancel, k.Delete, k.OpenPR, k.Refresh, k.Quit}
 }
 
 var keys = keyMap{
@@ -55,6 +56,10 @@ var keys = keyMap{
 	Delete: key.NewBinding(
 		key.WithKeys("d"),
 		key.WithHelp("d", "delete"),
+	),
+	OpenPR: key.NewBinding(
+		key.WithKeys("o"),
+		key.WithHelp("o", "open PR"),
 	),
 	Refresh: key.NewBinding(
 		key.WithKeys("r"),

@@ -80,7 +80,7 @@ func renderDetail(loop *core.Loop, repoRuns []core.RepoRun, width int) string {
 }
 
 func renderDetailField(label, value string) string {
-	return detailLabelStyle.Render(label+":") + " " + detailValueStyle.Render(value)
+	return detailLabelStyle.Render(label) + "\n" + detailValueStyle.Render(value)
 }
 
 func renderRepoRun(rr core.RepoRun, width int) string {
@@ -92,11 +92,11 @@ func renderRepoRun(rr core.RepoRun, width int) string {
 	name := lipgloss.NewStyle().Bold(true).Render(rr.RepoName)
 	branch := lipgloss.NewStyle().Foreground(colorMuted).Render(rr.Branch)
 
-	line := fmt.Sprintf(" %s %s  %s", icon, name, branch)
+	line1 := fmt.Sprintf(" %s %s  %s", icon, name, branch)
 
+	var parts []string
 	if rr.PRURL != "" {
-		pr := lipgloss.NewStyle().Foreground(colorAccent).Render(fmt.Sprintf("PR#%d", rr.PRNumber))
-		line += "  " + pr
+		parts = append(parts, osc8Link(rr.PRURL, fmt.Sprintf("PR#%d", rr.PRNumber)))
 	}
 
 	if rr.CIState != "" {
@@ -109,8 +109,7 @@ func renderRepoRun(rr core.RepoRun, width int) string {
 		case "pending":
 			ciColor = colorWarning
 		}
-		ci := lipgloss.NewStyle().Foreground(ciColor).Render(rr.CIState)
-		line += "  " + ci
+		parts = append(parts, lipgloss.NewStyle().Foreground(ciColor).Render(rr.CIState))
 	}
 
 	if rr.ReviewDecision != "" {
@@ -121,11 +120,14 @@ func renderRepoRun(rr core.RepoRun, width int) string {
 		case "CHANGES_REQUESTED":
 			revColor = colorError
 		}
-		rev := lipgloss.NewStyle().Foreground(revColor).Render(formatReview(rr.ReviewDecision))
-		line += "  " + rev
+		parts = append(parts, lipgloss.NewStyle().Foreground(revColor).Render(formatReview(rr.ReviewDecision)))
 	}
 
-	return line
+	if len(parts) > 0 {
+		return line1 + "\n   " + strings.Join(parts, "  ")
+	}
+
+	return line1
 }
 
 func formatStatus(status string) string {
@@ -157,4 +159,9 @@ func truncateStr(s string, max int) string {
 		return s
 	}
 	return string(runes[:max-3]) + "..."
+}
+
+func osc8Link(url, text string) string {
+	style := lipgloss.NewStyle().Foreground(colorAccent)
+	return "\033]8;;" + url + "\033\\" + style.Render(text) + "\033]8;;\033\\"
 }

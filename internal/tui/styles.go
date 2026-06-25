@@ -76,8 +76,7 @@ var (
 
 	detailLabelStyle = lipgloss.NewStyle().
 				Foreground(colorMuted).
-				Bold(true).
-				Width(12)
+				Bold(true)
 
 	detailValueStyle = lipgloss.NewStyle().
 				Foreground(colorFg)

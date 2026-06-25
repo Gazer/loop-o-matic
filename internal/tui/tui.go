@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -24,6 +26,7 @@ const (
 	stateNewTask
 	statePickRepo
 	stateConfirmDelete
+	statePickPR
 )
 
 type model struct {
@@ -34,6 +37,8 @@ type model struct {
 	textInput textinput.Model
 	repoNames []string
 	repoCursor int
+	prURLs    []string
+	prCursor  int
 	width     int
 	height    int
 	store     *store.Store
@@ -243,9 +248,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateNewTask(msg)
 		case statePickRepo:
 			return m.updatePickRepo(msg)
-		case stateConfirmDelete:
-			return m.updateConfirmDelete(msg)
-		}
+	case stateConfirmDelete:
+		return m.updateConfirmDelete(msg)
+	case statePickPR:
+		return m.updatePickPR(msg)
+	}
 	}
 
 	return m, nil
@@ -295,6 +302,24 @@ func (m model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			loop := &m.loops[m.cursor]
 			if core.IsTerminalStatus(loop.Status) || loop.Status == core.StatusPaused || loop.Status == core.StatusCancelled {
 				m.state = stateConfirmDelete
+			}
+		}
+
+	case keyMatches(msg, keys.OpenPR):
+		if len(m.loops) > 0 && m.cursor < len(m.loops) {
+			var urls []string
+			for _, rr := range m.repoRuns {
+				if rr.PRURL != "" {
+					urls = append(urls, rr.PRURL)
+				}
+			}
+			if len(urls) == 1 {
+				return m, openURL(urls[0])
+			}
+			if len(urls) > 1 {
+				m.prURLs = urls
+				m.prCursor = 0
+				m.state = statePickPR
 			}
 		}
 	}
@@ -372,6 +397,33 @@ func (m model) updateConfirmDelete(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updatePickPR(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case keyMatches(msg, keys.Escape):
+		m.state = stateList
+
+	case keyMatches(msg, keys.Up):
+		if m.prCursor > 0 {
+			m.prCursor--
+		}
+
+	case keyMatches(msg, keys.Down):
+		if m.prCursor < len(m.prURLs)-1 {
+			m.prCursor++
+		}
+
+	case keyMatches(msg, keys.Enter):
+		if m.prCursor < len(m.prURLs) {
+			url := m.prURLs[m.prCursor]
+			m.state = stateList
+			return m, openURL(url)
+		}
+		m.state = stateList
+	}
+
+	return m, nil
+}
+
 func (m model) View() string {
 	if m.width == 0 || m.height == 0 {
 		return "initializing..."
@@ -431,6 +483,10 @@ func (m model) renderDetailPanel(width int) string {
 		return m.renderRepoPicker(width)
 	}
 
+	if m.state == statePickPR {
+		return m.renderPRPicker(width)
+	}
+
 	if len(m.loops) == 0 || m.cursor >= len(m.loops) {
 		return lipgloss.NewStyle().
 			Width(width - 2).
@@ -482,6 +538,33 @@ func (m model) renderRepoPicker(width int) string {
 		Render(content)
 }
 
+func (m model) renderPRPicker(width int) string {
+	var items []string
+
+	title := panelTitleStyle.Render("Pick PR to open")
+	items = append(items, title, "")
+
+	for i, url := range m.prURLs {
+		var line string
+		if i == m.prCursor {
+			line = repoItemSelectedStyle.Width(width - 8).Render(" → "+url)
+		} else {
+			line = repoItemStyle.Width(width - 8).Render("   "+url)
+		}
+		items = append(items, line)
+	}
+
+	content := strings.Join(items, "\n")
+
+	return lipgloss.NewStyle().
+		Width(width - 2).
+		Height(m.height - 3).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorAccent).
+		Padding(1, 2).
+		Render(content)
+}
+
 func (m model) renderFooter() string {
 	var parts []string
 
@@ -491,6 +574,7 @@ func (m model) renderFooter() string {
 			"↑↓ navigate",
 			"n new task",
 			"p pause/resume",
+			"o open PR",
 			"x cancel",
 			"d delete",
 			"r refresh",
@@ -502,6 +586,8 @@ func (m model) renderFooter() string {
 		parts = []string{"↑↓ pick repo", "enter confirm", "esc back"}
 	case stateConfirmDelete:
 		return confirmStyle.Render(" Delete this loop? ") + helpStyle.Render("enter confirm · esc cancel")
+	case statePickPR:
+		parts = []string{"↑↓ pick PR", "enter open", "esc back"}
 	}
 
 	footer := helpStyle.Render(strings.Join(parts, "  ·  "))
@@ -524,6 +610,22 @@ func sortedRepoNames(repos map[string]config.RepoConfig) []string {
 		}
 	}
 	return names
+}
+
+func openURL(url string) tea.Cmd {
+	return func() tea.Msg {
+		var cmd *exec.Cmd
+		switch runtime.GOOS {
+		case "darwin":
+			cmd = exec.Command("open", url)
+		case "windows":
+			cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		default:
+			cmd = exec.Command("xdg-open", url)
+		}
+		_ = cmd.Start()
+		return nil
+	}
 }
 
 func max(a, b int) int {
