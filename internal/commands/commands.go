@@ -18,12 +18,14 @@ import (
 	"loop-o-matic/internal/doctor"
 	"loop-o-matic/internal/logging"
 	"loop-o-matic/internal/store"
+	"loop-o-matic/internal/tui"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func RunLoopCLI(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		printLoopUsage()
-		return nil
+		return runTUI()
 	}
 	switch args[0] {
 	case "doctor":
@@ -819,6 +821,21 @@ func repairLoopSummary(ctx context.Context, s *store.Store, loop *core.Loop) {
 func summaryLooksBroken(summary string) bool {
 	summary = strings.TrimSpace(summary)
 	return summary == "" || summary == "{" || summary == "[" || summary == "null"
+}
+
+func runTUI() error {
+	cfg, _, s, logger, cleanup, err := openRuntime()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	_ = logger
+
+	p := tea.NewProgram(tui.New(cfg, s), tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		return fmt.Errorf("tui error: %w", err)
+	}
+	return nil
 }
 
 func printLoopUsage() {
