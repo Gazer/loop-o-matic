@@ -27,3 +27,9 @@ func TestMergeConflictError(t *testing.T) {
 		t.Fatalf("expected: %q, got: %q", expected, err.Error())
 	}
 }
+
+func TestBareBranchRef(t *testing.T) {
+	if got := bareBranchRef("main"); got != "refs/heads/main" {
+		t.Fatalf("expected refs/heads/main, got %q", got)
+	}
+}

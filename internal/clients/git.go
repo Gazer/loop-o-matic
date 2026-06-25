@@ -29,8 +29,12 @@ func (Git) UpdateBranch(ctx context.Context, bareRepo, branch string) error {
 	if branch == "" {
 		return nil
 	}
-	_, err := run.Command(ctx, "", nil, "git", "--git-dir", bareRepo, "branch", "-f", branch, "origin/"+branch)
+	_, err := run.Command(ctx, "", nil, "git", "--git-dir", bareRepo, "branch", "-f", branch, bareBranchRef(branch))
 	return err
+}
+
+func bareBranchRef(branch string) string {
+	return "refs/heads/" + branch
 }
 
 func (Git) AddWorktree(ctx context.Context, bareRepo, worktreePath, branch, baseRef string) error {
